@@ -14,10 +14,6 @@ DIRECTORY = os.path.dirname(os.path.realpath(__file__)) + '/'
 env_path = DIRECTORY + '.env'
 load_dotenv(dotenv_path=env_path)
 
-# Variables para el Token y la URL del chatbot
-# Real Token
-# TOKEN = ""
-# Test token
 TOKEN = os.getenv("TOKEN")
 URL = "https://api.telegram.org/bot" + TOKEN + "/"
 
@@ -26,23 +22,22 @@ USER = {
 }
 
 PROVINCIAS = {
-    'pr': ['pinar', 'Pinar del Río'],
-    'ar': ['artemisa', 'Artemisa', ],
-    'c3': ['carlos3', 'Carlos Tercero'],
-    '4c': ['4caminos', 'Cuatro Caminos'],
-    'my': ['mayabeque-tv', 'Mayabeque'],
-    'mt': ['matanzas', 'Matanzas'],
-    'cf': ['cienfuegos', 'Cienfuegos'],
-    'vc': ['villaclara', 'Villa Clara'],
-    'ss': ['sancti', 'Sancti Spíritus'],
-    'ca': ['ciego', 'Ciego de Ávila'],
-    'cm': ['camaguey', 'Camagüey'],
-    'lt': ['tunas', 'Las Tunas'],
-    'hg': ['holguin', 'Holguín'],
-    'gr': ['granma', 'Granma'],
-    'st': ['santiago', 'Santiago de Cuba'],
-    'gt': ['guantanamo', 'Guantánamo'],
-    'ij': ['isla', 'La Isla'],
+    'pr': [ 'Pinar del Río', { 'pinar': 'Pinar del Río' } ],
+    'ar': [ 'Artemisa', { 'artemisa': 'Artemisa'} ],
+    'my': [ 'Mayabeque', { 'mayabeque-tv': 'Mayabeque' } ],
+    'mt': [ 'Matanzas', { 'matanzas': 'Matanzas' } ],
+    'cf': [ 'Cienfuegos', { 'cienfuegos': 'Cienfuegos' } ],
+    'vc': [ 'Villa Clara', { 'villaclara': 'Villa Clara' } ],
+    'ss': [ 'Sancti Spíritus', { 'sancti': 'Sancti Spíritus' } ],
+    'ca': [ 'Ciego de Ávila', { 'ciego': 'Ciego de Ávila' } ],
+    'cm': [ 'Camagüey', { 'camaguey': 'Camagüey' } ],
+    'lt': [ 'Las Tunas', { 'tunas': 'Las Tunas' } ],
+    'hg': [ 'Holguín', { 'holguin': 'Holguín' } ],
+    'gr': [ 'Granma', { 'granma': 'Granma' } ],
+    'st': [ 'Santiago de Cuba', { 'santiago': 'Santiago de Cuba' } ],
+    'gt': [ 'Guantánamo', { 'guantanamo': 'Guantánamo' } ],
+    'ij': [ 'La Isla', { 'isla': 'La Isla' } ],
+    'lh': [ 'La Habana', {'carlos3': 'Carlos Tercero', '4caminos': 'Cuatro Caminos'} ]
 }
 
 RESULTADOS = {
@@ -109,37 +104,47 @@ def enviar_mensaje(idchat, texto):
     requests.get(URL + "sendMessage?text=" + texto + "&chat_id=" + str(idchat) + "&parse_mode=html")
 
 
-def update_soup(url, mensaje, ahora, prov):
-    respuesta = requests.get(url)
-    data = respuesta.content.decode("utf8")
-    soup = BeautifulSoup(data, 'html.parser')
+def update_soup( url, mensaje, ahora, tienda ):
+    respuesta = requests.get( url )
+    data = respuesta.content.decode( "utf8" )
+    soup = BeautifulSoup( data, 'html.parser' )
     if mensaje not in RESULTADOS:
-        RESULTADOS[mensaje] = dict()
-    RESULTADOS[mensaje][prov] = {"tiempo": ahora, "soup": soup}
+        RESULTADOS[ mensaje ] = dict()
+    RESULTADOS[ mensaje ][ tienda ] = { 'tiempo': ahora, 'soup': soup }
     return soup
 
 
 def obtener_soup(mensaje, nombre, idchat):
-    prov, prov_name = 'granma', 'Granma'
+    # Arreglo con una tupla para cada tienda con sus valores
+    result = []
     if idchat in USER:
-        prov = PROVINCIAS[USER[idchat]['prov']][0]
-        prov_name = PROVINCIAS[USER[idchat]['prov']][1]
-    url_base = "https://www.tuenvio.cu/" + prov
-    url = url_base + "/Search.aspx?keywords=%22" + mensaje + "%22&depPid=0"
-    respuesta, data, soup = "", "", ""
-    ahora = datetime.datetime.now()
-    if mensaje not in RESULTADOS or prov not in RESULTADOS[mensaje]:
-        print("Buscando: \"" + mensaje + "\" para " + nombre)
-        soup = update_soup(url, mensaje, ahora, prov)
-    elif prov in RESULTADOS[mensaje]:
-        delta = ahora - RESULTADOS[mensaje][prov]["tiempo"]
-        if delta.total_seconds() <= TTL:
-            print("\"" + mensaje + "\"" + " aún en cache, no se realiza la búsqueda.")
-            soup = RESULTADOS[mensaje][prov]["soup"]
-        else:
-            print("Actualizando : \"" + mensaje + "\" para " + nombre)
-            soup = update_soup(url, mensaje, ahora, prov)
-    return soup, url_base, prov_name
+        # Seleccionar provincia que tiene el usuario en sus ajustes
+        prov = USER[ idchat ][ 'prov' ]
+
+        # Se hace el procesamiento para cada tienda en cada provincia
+        for tienda in PROVINCIAS[ prov ][ 1 ]:
+            url_base = "https://www.tuenvio.cu/" + tienda
+            url = url_base + "/Search.aspx?keywords=%22" + mensaje + "%22&depPid=0"
+            respuesta, data, soup = "", "", ""
+            ahora = datetime.datetime.now()
+
+            # Si el resultado no se encuentra cacheado buscar y guardar
+            if mensaje not in RESULTADOS or tienda not in RESULTADOS[ mensaje ]:
+                print( "Buscando: \"" + mensaje + "\" para " + nombre )
+                soup = update_soup( url, mensaje, ahora, tienda )
+            # Si el resultado está cacheado
+            elif tienda in RESULTADOS[ mensaje ]:
+                delta = ahora - RESULTADOS[ mensaje ][ tienda ][ 'tiempo' ]
+                # Si aún es válido se retorna lo que hay en cache
+                if delta.total_seconds() <= TTL:
+                    print( "\"" + mensaje + "\"" + " aún en cache, no se realiza la búsqueda." )
+                    soup = RESULTADOS[ mensaje ][ tienda ][ "soup" ]
+                # Si no es válido se actualiza la cache
+                else:
+                    print( "Actualizando : \"" + mensaje + "\" para " + nombre )
+                    soup = update_soup( url, mensaje, ahora, tienda )
+            result.append( ( soup, url_base, tienda ) )
+    return result
 
 
 def procesar_comando(mensaje, idchat):
@@ -150,20 +155,23 @@ def procesar_comando(mensaje, idchat):
     elif mensaje.startswith("/ayuda"):
         texto_respuesta = "Envíe una palabra para buscar. O puede seleccionar una provincia:\n\n"
         for prov in PROVINCIAS:
-            texto_respuesta += "/" + prov + ": " + PROVINCIAS[prov][1] + "\n"
+            texto_respuesta += "/" + prov + ": " + PROVINCIAS[prov][0] + "\n"
         salida = "ha solicitado la ayuda."
     else:
-        prov = mensaje.split('/')[1]
-        if prov in PROVINCIAS:
-            USER[idchat] = {'prov': prov}
-            texto_respuesta = "Ha seleccionado la provincia: " + PROVINCIAS[prov][1] + "."
-            salida = "ha cambiado la provincia de búsqueda a " + PROVINCIAS[prov][1] + "."
-        elif prov in PRODUCTOS:
-            producto = PRODUCTOS[prov]['producto']
-            texto_respuesta = "Consultando: " + producto + "\n\nClick para ver en: " + PRODUCTOS[prov]['link']
+        comando = mensaje.split('/')[1]
+        # Vemos si comando es una provincia
+        if comando in PROVINCIAS:
+            USER[ idchat ] = { 'prov': comando }
+            texto_respuesta = "Ha seleccionado la provincia: " + PROVINCIAS[ comando ][ 0 ] + "."
+            salida = "ha cambiado la provincia de búsqueda a " + PROVINCIAS[ comando ][ 0 ] + "."
+        # Si no entonces comando es un identificador de producto
+        elif comando in PRODUCTOS:
+            prov = USER[ idchat ][ 'prov' ]
+            producto = PRODUCTOS[ comando ][ prov ]['producto']
+            texto_respuesta = "Consultando: " + producto + "\n\nClick para ver en: " + PRODUCTOS[comando][ prov ]['link']
             salida = "ha consultado el link del producto " + producto + "."
         else:
-            texto_respuesta = "Ha seleccionado incorrectamente el comanndo de provincia. Por favor, utilice la /ayuda."
+            texto_respuesta = "Ha seleccionado incorrectamente el comando de provincia. Por favor, utilice la /ayuda."
             salida = "ha utilizado incorrectamente la ayuda."
     return texto_respuesta, salida
 
@@ -189,21 +197,28 @@ while (True):
                 texto_respuesta, salida = procesar_comando(mensaje, idchat)
                 print(nombre + " " + salida)
             else:
-                try:
-                    soup, url, prov_name = obtener_soup(mensaje, nombre, idchat)
-                    l = soup.select('div.thumbSetting')
-                    # texto_respuesta += "[Buscando en: " + prov_name + "]\n\n"
-                    for child in l:
-                        producto = child.select('div.thumbTitle a')[0].contents[0]
-                        phref = child.select('div.thumbTitle a')[0]['href']
-                        pid = phref.split('&')[0].split('=')[1]
-                        plink = url + "/" + phref
-                        if pid not in PRODUCTOS:
-                            PRODUCTOS[pid] = {'producto': producto, 'link': plink}
-                        precio = child.select('div.thumbPrice span')[0].contents[0]
-                        texto_respuesta += producto + " --> " + precio + " /" + pid + "\n"
-                except Exception as inst:
-                    texto_respuesta = "Ocurrió la siguiente excepción: " + str(inst)
+                #try:
+                    for soup, url_base, tienda in obtener_soup(mensaje, nombre, idchat):
+                        prov = USER[ idchat ][ 'prov' ]
+                        nombre_tienda = PROVINCIAS[ prov ][ 1 ][ tienda ]
+                        l = soup.select('div.thumbSetting')
+                        texto_respuesta += "[Resultados en: " + nombre_tienda + "]\n\n"
+                        for child in l:
+                            producto = child.select('div.thumbTitle a')[0].contents[0]
+                            phref = child.select('div.thumbTitle a')[0]['href']
+                            pid = phref.split('&')[0].split('=')[1]
+                            plink = url_base + "/" + phref
+                            if pid not in PRODUCTOS:
+                                PRODUCTOS[ pid ] = dict()
+                                PRODUCTOS[ pid ][ prov ] = {'producto': producto, 'link': plink}
+                            else:
+                                if prov not in PRODUCTOS[ pid ]:
+                                    PRODUCTOS[ pid ][ prov ] = {'producto': producto, 'link': plink}
+                            precio = child.select('div.thumbPrice span')[0].contents[0]
+                            texto_respuesta += producto + " --> " + precio + " /" + pid + "\n"
+                        texto_respuesta += "\n"
+                #except Exception as inst:
+                    #texto_respuesta = "Ocurrió la siguiente excepción: " + str(inst)
         else:
             texto_respuesta = "Solo se admiten textos."
 
@@ -216,7 +231,7 @@ while (True):
             if texto_respuesta.startswith("Ocurrió"):
                 enviar_mensaje("744256293", texto_respuesta)
             elif not texto_respuesta.startswith("Búsqueda") and not texto_respuesta.startswith("Ha seleccionado"):
-                texto_respuesta = "🎉🎉🎉¡¡¡Encontrado!!! 🎉🎉🎉\n\n" + texto_respuesta + "\n\nNota: Algunos links de productos no funcionan debido a los ajustes del sitio tuenvio. Rogamos nos disculpen."
+                texto_respuesta = "🎉🎉🎉¡¡¡Encontrado!!! 🎉🎉🎉\n\n" + texto_respuesta + "\nNota: Algunos links de productos no funcionan debido a los ajustes del sitio tuenvio. Rogamos nos disculpen."
             enviar_mensaje(idchat, texto_respuesta)
         else:
             enviar_mensaje(idchat, "No hay productos que contengan la palabra buscada ... 😭")
