@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup
 
 # Variables para el Token y la URL del chatbot
 # Real Token
-#TOKEN = "1190077785:AAHwXjmy0r5mTA0XHmUwnUn3H0PWhDrGVGM"
+#TOKEN = ""
 # Test token
 TOKEN = ""
 URL = "https://api.telegram.org/bot" + TOKEN + "/"
