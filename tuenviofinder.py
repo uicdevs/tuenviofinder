@@ -231,7 +231,7 @@ while (True):
             if texto_respuesta.startswith("Ocurrió"):
                 enviar_mensaje("744256293", texto_respuesta)
             elif not texto_respuesta.startswith("Búsqueda") and not texto_respuesta.startswith("Ha seleccionado"):
-                texto_respuesta = "🎉🎉🎉¡¡¡Encontrado!!! 🎉🎉🎉\n\n" + texto_respuesta + "\nNota: Algunos links de productos no funcionan debido a los ajustes del sitio tuenvio. Rogamos nos disculpen."
+                texto_respuesta = "🎉🎉🎉¡¡¡Encontrado!!! 🎉🎉🎉\n\n" + texto_respuesta
             enviar_mensaje(idchat, texto_respuesta)
         else:
             enviar_mensaje(idchat, "No hay productos que contengan la palabra buscada ... 😭")
