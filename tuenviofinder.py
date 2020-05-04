@@ -229,11 +229,18 @@ while (True):
             ultima_id = id_update + 1
 
         # Enviar la respuesta
+        respuestas_posibles = [ "Búsqueda", "Ha seleccionado", "Consultando", "Envíe" ]
+        hay_resp_posible = False
+        for rp in respuestas_posibles:
+            if texto_respuesta.startswith(rp):
+                hay_resp_posible = True
+                break
+                
         if texto_respuesta:
             if texto_respuesta.startswith("Ocurrió"):
                 enviar_mensaje("744256293", texto_respuesta)
                 print("error")
-            elif texto_respuesta.startswith("Búsqueda") or texto_respuesta.startswith("Ha seleccionado") or texto_respuesta.startswith("Consultando"):
+            elif hay_resp_posible:
                 enviar_mensaje(idchat, texto_respuesta)
                 print("Busqueda o seleccion de provincia o consulta de producto")
             else:
@@ -244,6 +251,7 @@ while (True):
                 else:
                     enviar_mensaje(idchat, "No hay productos que contengan la palabra buscada ... 😭")
                     print("no hubo respuesta")
+                    print(texto_respuesta)
         else:
             enviar_mensaje(idchat, "No hay productos que contengan la palabra buscada ... 😭")
             print("mensaje vacio")
