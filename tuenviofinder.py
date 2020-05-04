@@ -193,17 +193,19 @@ while (True):
         if tipo == "texto":
             mensaje = leer_mensaje(i)
             texto_respuesta = ""
+            answer = False
             if mensaje.startswith("/"):
                 texto_respuesta, salida = procesar_comando(mensaje, idchat)
                 print(nombre + " " + salida)
             else:
-                #try:
+                try:
                     for soup, url_base, tienda in obtener_soup(mensaje, nombre, idchat):
                         prov = USER[ idchat ][ 'prov' ]
                         nombre_tienda = PROVINCIAS[ prov ][ 1 ][ tienda ]
                         l = soup.select('div.thumbSetting')
                         texto_respuesta += "[Resultados en: " + nombre_tienda + "]\n\n"
                         for child in l:
+                            answer = True
                             producto = child.select('div.thumbTitle a')[0].contents[0]
                             phref = child.select('div.thumbTitle a')[0]['href']
                             pid = phref.split('&')[0].split('=')[1]
@@ -217,8 +219,8 @@ while (True):
                             precio = child.select('div.thumbPrice span')[0].contents[0]
                             texto_respuesta += producto + " --> " + precio + " /" + pid + "\n"
                         texto_respuesta += "\n"
-                #except Exception as inst:
-                    #texto_respuesta = "Ocurrió la siguiente excepción: " + str(inst)
+                except Exception as inst:
+                    texto_respuesta = "Ocurrió la siguiente excepción: " + str(inst)
         else:
             texto_respuesta = "Solo se admiten textos."
 
@@ -230,11 +232,22 @@ while (True):
         if texto_respuesta:
             if texto_respuesta.startswith("Ocurrió"):
                 enviar_mensaje("744256293", texto_respuesta)
-            elif not texto_respuesta.startswith("Búsqueda") and not texto_respuesta.startswith("Ha seleccionado"):
-                texto_respuesta = "🎉🎉🎉¡¡¡Encontrado!!! 🎉🎉🎉\n\n" + texto_respuesta
-            enviar_mensaje(idchat, texto_respuesta)
+                print("error")
+            elif texto_respuesta.startswith("Búsqueda") or texto_respuesta.startswith("Ha seleccionado") or texto_respuesta.startswith("Consultando"):
+                enviar_mensaje(idchat, texto_respuesta)
+                print("Busqueda o seleccion de provincia o consulta de producto")
+            else:
+                if answer:
+                    texto_respuesta = "🎉🎉🎉¡¡¡Encontrado!!! 🎉🎉🎉\n\n" + texto_respuesta
+                    enviar_mensaje(idchat, texto_respuesta)
+                    print(texto_respuesta)
+                else:
+                    enviar_mensaje(idchat, "No hay productos que contengan la palabra buscada ... 😭")
+                    print("no hubo respuesta")
         else:
             enviar_mensaje(idchat, "No hay productos que contengan la palabra buscada ... 😭")
+            print("mensaje vacio")
+
 
     # Vaciar el diccionario
     mensajes_diccionario = []
