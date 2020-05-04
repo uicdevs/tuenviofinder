@@ -8,6 +8,7 @@ import os
 import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+import urllib
 
 DIRECTORY = os.path.dirname(os.path.realpath(__file__)) + '/'
 
@@ -217,7 +218,7 @@ while (True):
                                 if prov not in PRODUCTOS[ pid ]:
                                     PRODUCTOS[ pid ][ prov ] = {'producto': producto, 'link': plink}
                             precio = child.select('div.thumbPrice span')[0].contents[0]
-                            texto_respuesta += producto + " --> " + precio + " /" + pid + "\n"
+                            texto_respuesta += producto + " --> " + precio + urllib.parse.quote(" <a href=\""+plink+"\">[ver más]</a>")+"\n"
                         texto_respuesta += "\n"
                 except Exception as inst:
                     texto_respuesta = "Ocurrió la siguiente excepción: " + str(inst)
@@ -235,7 +236,7 @@ while (True):
             if texto_respuesta.startswith(rp):
                 hay_resp_posible = True
                 break
-                
+
         if texto_respuesta:
             if texto_respuesta.startswith("Ocurrió"):
                 enviar_mensaje("744256293", texto_respuesta)
