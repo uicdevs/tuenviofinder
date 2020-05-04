@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-
+from pathlib import Path
 import datetime
 import json
 import logging
@@ -11,20 +11,20 @@ import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
-DIRECTORY = os.path.dirname(os.path.realpath(__file__)) + '/'
+DIRECTORY = Path('.')
 
 logger = logging.getLogger('tuenviofinder')
 logger.setLevel(logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
-fh = RotatingFileHandler(DIRECTORY + 'logs/sync.log', mode='a', maxBytes=5 * 1024 * 1024, backupCount=1, encoding=None, delay=0)
+fh = RotatingFileHandler(str(DIRECTORY / 'logs' / 'sync.log'), mode='a', maxBytes=5 * 1024 * 1024, backupCount=1)
 fh.setFormatter(formatter)
 logger.addHandler(fh)
 
-env_path = DIRECTORY + '.env'
+env_path = DIRECTORY / '.env'
 load_dotenv(dotenv_path=env_path)
 
-TOKEN = os.getenv("TOKEN")
-URL = "https://api.telegram.org/bot" + TOKEN + "/"
+TOKEN = os.getenv('TOKEN')
+URL = f'https://api.telegram.org/bot{TOKEN}/'
 
 USER = {
 
@@ -60,14 +60,15 @@ PRODUCTOS = {
 # Tiempo en segundos que una palabra de búsqueda permanece válida
 TTL = 300
 
+session = requests.Session()
+
 
 def update(offset):
     # Llamar al metodo getUpdates del bot, utilizando un offset
-    respuesta = requests.get(URL + "getUpdates" +
-                             "?offset=" + str(offset) + "&timeout=" + str(100))
+    respuesta = session.get(f'{URL}getUpdates?offset={str(offset)}&timeout={str(100)}')
 
     # Decodificar la respuesta recibida a formato UTF8
-    mensajes_js = respuesta.content.decode("utf8")
+    mensajes_js = respuesta.content.decode('utf8')
 
     # Convertir y retornar el string de JSON a un diccionario de Python
     return json.loads(mensajes_js)
@@ -106,14 +107,14 @@ def leer_mensaje(mensaje):
 
 
 def enviar_mensaje(idchat, texto):
-    logger.debug("Sending message {chat} >> {text}".format(chat=idchat, text=texto))
+    logger.debug(f'Sending message {idchat} >> {texto}')
     # Llamar el metodo sendMessage del bot, passando el texto y la id del chat
-    requests.get(URL + "sendMessage?text=" + texto + "&chat_id=" + str(idchat) + "&parse_mode=html")
+    session.get(f'{URL}sendMessage?text={texto}&chat_id={str(idchat)}&parse_mode=html')
 
 
 def update_soup(url, mensaje, ahora, tienda):
-    respuesta = requests.get(url)
-    data = respuesta.content.decode("utf8")
+    respuesta = session.get(url)
+    data = respuesta.content.decode('utf8')
     soup = BeautifulSoup(data, 'html.parser')
     if mensaje not in RESULTADOS:
         RESULTADOS[mensaje] = dict()
@@ -130,56 +131,57 @@ def obtener_soup(mensaje, nombre, idchat):
 
         # Se hace el procesamiento para cada tienda en cada provincia
         for tienda in PROVINCIAS[prov][1]:
-            url_base = "https://www.tuenvio.cu/" + tienda
-            url = url_base + "/Search.aspx?keywords=%22" + mensaje + "%22&depPid=0"
-            respuesta, data, soup = "", "", ""
+            url_base = f'https://www.tuenvio.cu/{tienda}'
+            url = f'{url_base}/Search.aspx?keywords=%22{mensaje}%22&depPid=0'
+            respuesta, data, soup_str = '', '', ''
             ahora = datetime.datetime.now()
 
             # Si el resultado no se encuentra cacheado buscar y guardar
             if mensaje not in RESULTADOS or tienda not in RESULTADOS[mensaje]:
-                debug_print("Buscando: \"" + mensaje + "\" para " + nombre)
-                soup = update_soup(url, mensaje, ahora, tienda)
+                debug_print(f'Buscando: "{mensaje}" para {nombre}')
+                soup_str = update_soup(url, mensaje, ahora, tienda)
             # Si el resultado está cacheado
             elif tienda in RESULTADOS[mensaje]:
                 delta = ahora - RESULTADOS[mensaje][tienda]['tiempo']
                 # Si aún es válido se retorna lo que hay en cache
                 if delta.total_seconds() <= TTL:
-                    debug_print("\"" + mensaje + "\"" + " aún en cache, no se realiza la búsqueda.")
-                    soup = RESULTADOS[mensaje][tienda]["soup"]
+                    debug_print(f'"{mensaje}" aún en cache, no se realiza la búsqueda.')
+                    soup_str = RESULTADOS[mensaje][tienda]["soup"]
                 # Si no es válido se actualiza la cache
                 else:
-                    debug_print("Actualizando : \"" + mensaje + "\" para " + nombre)
-                    soup = update_soup(url, mensaje, ahora, tienda)
-            result.append((soup, url_base, tienda))
+                    debug_print(f'Actualizando : "{mensaje}" para {nombre}')
+                    soup_str = update_soup(url, mensaje, ahora, tienda)
+            result.append((soup_str, url_base, tienda))
     return result
 
 
 def procesar_comando(mensaje, idchat):
-    texto_respuesta, salida = '', ''
-    if mensaje.startswith("/start"):
-        texto_respuesta = "Búsqueda de productos en tuenvio.cu. Envíe una o varias palabras y se le responderá la disponibilidad. También puede probar la /ayuda. Suerte!"
-        salida = "ha iniciado chat con el bot."
-    elif mensaje.startswith("/ayuda"):
-        texto_respuesta = "Envíe una palabra para buscar. O puede seleccionar una provincia:\n\n"
+    # texto_respuesta, salida = '', ''
+    if mensaje.startswith('/start'):
+        texto_respuesta = 'Búsqueda de productos en tuenvio.cu. Envíe una o varias palabras y se le responderá la disponibilidad. También puede probar la /ayuda. Suerte!'
+        salida = 'ha iniciado chat con el bot.'
+    elif mensaje.startswith('/ayuda'):
+        texto_respuesta = 'Envíe una palabra para buscar. O puede seleccionar una provincia:\n\n'
         for prov in PROVINCIAS:
-            texto_respuesta += "/" + prov + ": " + PROVINCIAS[prov][0] + "\n"
-        salida = "ha solicitado la ayuda."
+            texto_respuesta += f'/{prov}: {PROVINCIAS[prov][0]}\n'
+        salida = 'ha solicitado la ayuda.'
     else:
         comando = mensaje.split('/')[1]
         # Vemos si comando es una provincia
         if comando in PROVINCIAS:
             USER[idchat] = {'prov': comando}
-            texto_respuesta = "Ha seleccionado la provincia: " + PROVINCIAS[comando][0] + "."
-            salida = "ha cambiado la provincia de búsqueda a " + PROVINCIAS[comando][0] + "."
+            texto_respuesta = f'Ha seleccionado la provincia: {PROVINCIAS[comando][0]}.'
+            salida = f'ha cambiado la provincia de búsqueda a {PROVINCIAS[comando][0]}.'
         # Si no entonces comando es un identificador de producto
         elif comando in PRODUCTOS:
             prov = USER[idchat]['prov']
             producto = PRODUCTOS[comando][prov]['producto']
-            texto_respuesta = "Consultando: " + producto + "\n\nClick para ver en: " + PRODUCTOS[comando][prov]['link']
-            salida = "ha consultado el link del producto " + producto + "."
+            link = PRODUCTOS[comando][prov]['link']
+            texto_respuesta = f'Consultando: {producto}\n\nClick para ver en: {link}'
+            salida = f'ha consultado el link del producto {producto}.'
         else:
-            texto_respuesta = "Ha seleccionado incorrectamente el comando de provincia. Por favor, utilice la /ayuda."
-            salida = "ha utilizado incorrectamente la ayuda."
+            texto_respuesta = 'Ha seleccionado incorrectamente el comando de provincia. Por favor, utilice la /ayuda.'
+            salida = 'ha utilizado incorrectamente la ayuda.'
     return texto_respuesta, salida
 
 
@@ -194,13 +196,13 @@ ultima_id = 0
 while (True):
     try:
         mensajes_diccionario = update(ultima_id)
-        for i in mensajes_diccionario["result"]:
+        for i in mensajes_diccionario['result']:
 
             # Guardar la informacion del mensaje
             try:
                 tipo, idchat, nombre, id_update = info_mensaje(i)
-            except:
-                tipo, idchat, nombre, id_update = "delete", "744256293", "Disnel 56", 1
+            except (IndexError, Exception):
+                tipo, idchat, nombre, id_update = 'delete', '744256293', 'Disnel 56', 1
 
             answer = False
             # Generar una respuesta dependiendo del tipo de mensaje
@@ -216,14 +218,14 @@ while (True):
                         for soup, url_base, tienda in obtener_soup(mensaje, nombre, idchat):
                             prov = USER[idchat]['prov']
                             nombre_tienda = PROVINCIAS[prov][1][tienda]
-                            l = soup.select('div.thumbSetting')
-                            texto_respuesta += "[Resultados en: " + nombre_tienda + "]\n\n"
-                            for child in l:
+                            thumb_setting = soup.select('div.thumbSetting')
+                            texto_respuesta += f'[Resultados en: {nombre_tienda}]\n\n'
+                            for child in thumb_setting:
                                 answer = True
                                 producto = child.select('div.thumbTitle a')[0].contents[0]
                                 phref = child.select('div.thumbTitle a')[0]['href']
                                 pid = phref.split('&')[0].split('=')[1]
-                                plink = url_base + "/" + phref
+                                plink = f'{url_base}/{phref}'
                                 if pid not in PRODUCTOS:
                                     PRODUCTOS[pid] = dict()
                                     PRODUCTOS[pid][prov] = {'producto': producto, 'link': plink}
@@ -231,19 +233,19 @@ while (True):
                                     if prov not in PRODUCTOS[pid]:
                                         PRODUCTOS[pid][prov] = {'producto': producto, 'link': plink}
                                 precio = child.select('div.thumbPrice span')[0].contents[0]
-                                texto_respuesta += producto + " --> " + precio + urllib.parse.quote(" <a href=\"" + plink + "\">[ver más]</a>") + "\n"
+                                texto_respuesta += producto + ' --> ' + precio + urllib.parse.quote(f' <a href="{plink}">[ver más]</a>') + '\n'
                             texto_respuesta += "\n"
                     except Exception as inst:
-                        texto_respuesta = "Ocurrió la siguiente excepción: " + str(inst)
+                        texto_respuesta = f'Ocurrió la siguiente excepción: {str(inst)}'
             else:
-                texto_respuesta = "Solo se admiten textos."
+                texto_respuesta = 'Solo se admiten textos.'
 
             # Si la ID del mensaje es mayor que el ultimo, se guarda la ID + 1
             if id_update > (ultima_id - 1):
                 ultima_id = id_update + 1
 
             # Enviar la respuesta
-            respuestas_posibles = ["Búsqueda", "Ha seleccionado", "Consultando", "Envíe"]
+            respuestas_posibles = ['Búsqueda', 'Ha seleccionado', 'Consultando', 'Envíe']
             hay_resp_posible = False
             for rp in respuestas_posibles:
                 if texto_respuesta.startswith(rp):
@@ -251,26 +253,26 @@ while (True):
                     break
 
             if texto_respuesta:
-                if texto_respuesta.startswith("Ocurrió"):
-                    enviar_mensaje("744256293", texto_respuesta)
-                    debug_print("error")
+                if texto_respuesta.startswith('Ocurrió'):
+                    enviar_mensaje('744256293', texto_respuesta)
+                    debug_print('error')
                 elif hay_resp_posible:
                     enviar_mensaje(idchat, texto_respuesta)
-                    debug_print("Busqueda o seleccion de provincia o consulta de producto")
+                    debug_print('Busqueda o seleccion de provincia o consulta de producto')
                 else:
                     if answer:
-                        texto_respuesta = "🎉🎉🎉¡¡¡Encontrado!!! 🎉🎉🎉\n\n" + texto_respuesta
+                        texto_respuesta = f'🎉🎉🎉¡¡¡Encontrado!!! 🎉🎉🎉\n\n{texto_respuesta}'
                         enviar_mensaje(idchat, texto_respuesta)
                         debug_print(texto_respuesta)
                     else:
-                        enviar_mensaje(idchat, "No hay productos que contengan la palabra buscada ... 😭")
-                        debug_print("no hubo respuesta")
+                        enviar_mensaje(idchat, 'No hay productos que contengan la palabra buscada ... 😭')
+                        debug_print('no hubo respuesta')
                         debug_print(texto_respuesta)
             else:
-                enviar_mensaje(idchat, "No hay productos que contengan la palabra buscada ... 😭")
-                debug_print("mensaje vacio")
+                enviar_mensaje(idchat, 'No hay productos que contengan la palabra buscada ... 😭')
+                debug_print('mensaje vacio')
 
         # Vaciar el diccionario
         mensajes_diccionario = []
     except Exception as ex:
-        logger.error("Unhandled error >> {error}".format(error=ex))
+        logger.error(f'Unhandled error >> {ex}')
