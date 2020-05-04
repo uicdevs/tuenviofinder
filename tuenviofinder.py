@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 
 DIRECTORY = os.path.dirname(os.path.realpath(__file__)) + '/'
 
-logger = logging.getLogger(DIRECTORY + 'tuenviofinder.sync')
+logger = logging.getLogger('tuenviofinder')
 logger.setLevel(logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
 fh = RotatingFileHandler(DIRECTORY + 'logs/sync.log', mode='a', maxBytes=5 * 1024 * 1024, backupCount=1, encoding=None, delay=0)
