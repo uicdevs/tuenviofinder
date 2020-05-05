@@ -4,6 +4,7 @@ import logging
 import os
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+import sqlite3
 
 import requests
 from bs4 import BeautifulSoup
@@ -25,11 +26,10 @@ env_path = DIRECTORY / '.env'
 load_dotenv(dotenv_path=env_path)
 
 TOKEN = os.getenv('TOKEN')
+BD_FILE = os.getenv('BD_FILE')
 URL = f'https://api.telegram.org/bot{TOKEN}/'
 
-USER = {
-
-}
+USER, RESULTADOS, PRODUCTOS = {}, {}, {}
 
 PROVINCIAS = {
     'pr': ['Pinar del Río', {'pinar': 'Pinar del Río'}],
@@ -50,13 +50,6 @@ PROVINCIAS = {
     'lh': ['La Habana', {'carlos3': 'Carlos III', '4caminos': 'Cuatro Caminos', 'tvpedregal': 'Pedregal', 'caribehabana': 'Villa Diana'}],
 }
 
-RESULTADOS = {
-
-}
-
-PRODUCTOS = {
-
-}
 
 # Tiempo en segundos que una palabra de búsqueda permanece válida
 TTL = 600
@@ -64,7 +57,18 @@ TTL = 600
 session = requests.Session()
 
 
-def update_soup(url, mensaje, ahora, tienda):
+def inicializar_bd():
+    conn = sqlite3.connect( 'BD_FILE' )
+    c = conn.cursor()
+    try:
+        c.execute("SELECT * FROM lineas")
+    except sqlite3.OperationalError:
+        debug_print("Error, base de datos inexistente")
+        sys.exit(0)
+    return (conn, c,)
+
+
+def actualizar_soup(url, mensaje, ahora, tienda):
     respuesta = session.get(url)
     data = respuesta.content.decode('utf8')
     soup = BeautifulSoup(data, 'html.parser')
@@ -91,7 +95,7 @@ def obtener_soup(mensaje, nombre, idchat):
             # Si el resultado no se encuentra cacheado buscar y guardar
             if mensaje not in RESULTADOS or tienda not in RESULTADOS[mensaje]:
                 debug_print(f'Buscando: "{mensaje}" para {nombre}')
-                soup_str = update_soup(url, mensaje, ahora, tienda)
+                soup_str = actualizar_soup(url, mensaje, ahora, tienda)
             # Si el resultado está cacheado
             elif tienda in RESULTADOS[mensaje]:
                 delta = ahora - RESULTADOS[mensaje][tienda]['tiempo']
@@ -102,7 +106,7 @@ def obtener_soup(mensaje, nombre, idchat):
                 # Si no es válido se actualiza la cache
                 else:
                     debug_print(f'Actualizando : "{mensaje}" para {nombre}')
-                    soup_str = update_soup(url, mensaje, ahora, tienda)
+                    soup_str = actualizar_soup(url, mensaje, ahora, tienda)
             result.append((soup_str, url_base, tienda))
     return result
 
@@ -133,7 +137,7 @@ def construir_menu(buttons,
 
 # Definicion del comando /start
 def start(update, context):
-    mensaje_bienvenida = 'Búsqueda de productos en tuenvio.cu. Envíe una o varias palabras y se le responderá la disponibilidad. Consulte la /ayuda para seleccionar su provincia. Suerte!'
+    mensaje_bienvenida = 'Búsqueda de productos en tuenvio.cu. Envíe una o varias palabras y el bot se encargará de chequear el sitio por usted. Consulte la /ayuda para seleccionar su provincia. Suerte!'
 
     button_list = [
         ['/start', '/ayuda', '/prov'],
