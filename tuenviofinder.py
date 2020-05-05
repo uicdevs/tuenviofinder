@@ -134,6 +134,20 @@ def construir_menu(buttons,
         menu.append([footer_buttons])
     return menu
 
+# Retorna una lista con las tiendas de una provincia
+def obtener_tiendas(prov):
+    tiendas = []
+    for tid in PROVINCIAS[prov][1]:
+        tiendas.append(PROVINCIAS[prov][1][tid])
+    return tiendas
+
+def mensaje_seleccion_provincia(prov):
+    provincia = PROVINCIAS[prov][0]
+    texto_respuesta = 'Ha seleccionado: <b>' + provincia + '</b>. La búsqueda se realizará en:\n\n'
+    for tienda in obtener_tiendas(prov):
+        texto_respuesta += '🏬 ' + tienda + '\n'
+    return texto_respuesta
+
 
 # Definicion del comando /start
 def start(update, context):
@@ -172,10 +186,11 @@ def teclado_provincias(update, context):
     prov = query.data
     provincia = PROVINCIAS[prov][0]
     USER[update.effective_chat.id] = {'prov': prov}
-    msg = 'Ha seleccionado la provincia: ' + provincia
-    context.bot.edit_message_text(text=msg,
+    texto_respuesta = mensaje_seleccion_provincia(prov)
+    context.bot.edit_message_text(text=texto_respuesta,
                                   chat_id=query.message.chat_id,
-                                  message_id=query.message.message_id)
+                                  message_id=query.message.message_id,
+                                  parse_mode='HTML')
 
 
 dispatcher.add_handler(CallbackQueryHandler(teclado_provincias))
@@ -206,10 +221,9 @@ dispatcher.add_handler(CommandHandler('prov', prov))
 def seleccionar_provincia(update, context):
     # Seleccionar el id de provincia sin "/"
     prov = update.message.text[1:]
-    provincia = PROVINCIAS[prov][0]
-    texto_respuesta = "Ha seleccionado la provincia: " + provincia
+    texto_respuesta = mensaje_seleccion_provincia(prov)
     USER[update.effective_chat.id] = {'prov': prov}
-    context.bot.send_message(chat_id=update.effective_chat.id, text=texto_respuesta)
+    context.bot.send_message(chat_id=update.effective_chat.id, text=texto_respuesta, parse_mode='HTML')
 
 
 for prov in PROVINCIAS:
@@ -231,7 +245,7 @@ def buscar_producto(update, context):
                 prov = USER[idchat]['prov']
                 nombre_tienda = PROVINCIAS[prov][1][tienda]
                 thumb_setting = soup.select('div.thumbSetting')
-                texto_respuesta += f'[Resultados en: {nombre_tienda}]\n\n'
+                texto_respuesta += f'[Resultados en: 🏬 {nombre_tienda}]\n\n'
                 for child in thumb_setting:
                     answer = True
                     producto = child.select('div.thumbTitle a')[0].contents[0]
