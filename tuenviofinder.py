@@ -1,21 +1,18 @@
 #!/usr/bin/python3
-from pathlib import Path
 import datetime
-import json
 import logging
 import os
-import urllib
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
-
+from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 # Python wrapper imports
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
-from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, KeyboardButton, InlineKeyboardButton, ParseMode
 
-DIRECTORY = Path('.')
+DIRECTORY = Path(os.path.dirname(os.path.realpath(__file__)))
 
 logger = logging.getLogger('tuenviofinder')
 logger.setLevel(logging.DEBUG)
@@ -34,7 +31,7 @@ USER = {
 
 }
 
-PROVINCIAS = {    
+PROVINCIAS = {
     'pr': ['Pinar del Río', {'pinar': 'Pinar del Río'}],
     'ar': ['Artemisa', {'artemisa': 'Artemisa'}],
     'my': ['Mayabeque', {'mayabeque-tv': 'Mayabeque'}],
@@ -65,7 +62,6 @@ PRODUCTOS = {
 TTL = 600
 
 session = requests.Session()
-
 
 
 def update_soup(url, mensaje, ahora, tienda):
@@ -116,17 +112,17 @@ def debug_print(message):
     logger.debug(message)
 
 
-
 # Inicializar todo
 
 updater = Updater(TOKEN, use_context=True)
 dispatcher = updater.dispatcher
 
+
 # Pequeña función para generar un menu para teclado
 def construir_menu(buttons,
-               n_cols,
-               header_buttons=None,
-               footer_buttons=None):
+                   n_cols,
+                   header_buttons=None,
+                   footer_buttons=None):
     menu = [buttons[i:i + n_cols] for i in range(0, len(buttons), n_cols)]
     if header_buttons:
         menu.insert(0, [header_buttons])
@@ -163,7 +159,7 @@ def ayuda(update, context):
                              text=texto_respuesta)
 
 
-dispatcher.add_handler( CommandHandler('ayuda', ayuda) )
+dispatcher.add_handler(CommandHandler('ayuda', ayuda))
 
 
 # Manejador del teclado inline de provincias
@@ -171,11 +167,11 @@ def teclado_provincias(update, context):
     query = update.callback_query
     prov = query.data
     provincia = PROVINCIAS[prov][0]
-    USER[update.effective_chat.id] = { 'prov': prov }
+    USER[update.effective_chat.id] = {'prov': prov}
     msg = 'Ha seleccionado la provincia: ' + provincia
     context.bot.edit_message_text(text=msg,
-                          chat_id=query.message.chat_id,
-                          message_id=query.message.message_id)
+                                  chat_id=query.message.chat_id,
+                                  message_id=query.message.message_id)
 
 
 dispatcher.add_handler(CallbackQueryHandler(teclado_provincias))
@@ -187,7 +183,7 @@ def prov(update, context):
     botones_provincias = []
     for prov in PROVINCIAS:
         provincia = PROVINCIAS[prov][0]
-        botones_provincias.append( InlineKeyboardButton(provincia, callback_data=prov) )
+        botones_provincias.append(InlineKeyboardButton(provincia, callback_data=prov))
 
     teclado = construir_menu(botones_provincias, n_cols=3)
 
@@ -198,7 +194,7 @@ def prov(update, context):
                              reply_markup=reply_markup)
 
 
-dispatcher.add_handler( CommandHandler('prov', prov) )
+dispatcher.add_handler(CommandHandler('prov', prov))
 
 
 # Generar masivamente los comandos de selección de provincia
@@ -208,11 +204,12 @@ def seleccionar_provincia(update, context):
     prov = update.message.text[1:]
     provincia = PROVINCIAS[prov][0]
     texto_respuesta = "Ha seleccionado la provincia: " + provincia
-    USER[update.effective_chat.id] = { 'prov': prov }
+    USER[update.effective_chat.id] = {'prov': prov}
     context.bot.send_message(chat_id=update.effective_chat.id, text=texto_respuesta)
-    
+
+
 for prov in PROVINCIAS:
-    dispatcher.add_handler( CommandHandler( prov, seleccionar_provincia) )
+    dispatcher.add_handler(CommandHandler(prov, seleccionar_provincia))
 
 
 # Procesar los textos de búsqueda de productos
@@ -243,16 +240,18 @@ def buscar_producto(update, context):
         except Exception as inst:
             texto_respuesta = f'Ocurrió la siguiente excepción: {str(inst)}'
     else:
-        texto_respuesta = f'Debe seleccionar antes su provincia: hágalo mediante el menú de /ayuda.' 
-    
+        texto_respuesta = f'Debe seleccionar antes su provincia: hágalo mediante el menú de /ayuda.'
+
     if answer:
         texto_respuesta = f'🎉🎉🎉¡¡¡Encontrado!!! 🎉🎉🎉\n\n{texto_respuesta}'
     else:
         texto_respuesta = 'No hay productos que contengan la palabra buscada ... 😭'
 
-    context.bot.send_message(chat_id=idchat, text=texto_respuesta, parse_mode='HTML' )
+    context.bot.send_message(chat_id=idchat, text=texto_respuesta, parse_mode='HTML')
 
-dispatcher.add_handler( MessageHandler(Filters.text, buscar_producto) )
+
+dispatcher.add_handler(MessageHandler(Filters.text, buscar_producto))
+
 
 # No procesar comandos incorrectos
 def desconocido(update, context):
@@ -261,6 +260,6 @@ def desconocido(update, context):
                              text=texto_respuesta)
 
 
-dispatcher.add_handler( MessageHandler(Filters.command, desconocido) )
+dispatcher.add_handler(MessageHandler(Filters.command, desconocido))
 
 updater.start_polling(allowed_updates=[])
