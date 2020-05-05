@@ -47,7 +47,7 @@ PROVINCIAS = {
     'st': ['Santiago de Cuba', {'santiago': 'Santiago de Cuba'}],
     'gt': ['Guantánamo', {'guantanamo': 'Guantánamo'}],
     'ij': ['La Isla', {'isla': 'La Isla'}],
-    'lh': ['La Habana', {'carlos3': 'Carlos Tercero', '4caminos': 'Cuatro Caminos', 'tvpedregal': 'El Pedregal'}],
+    'lh': ['La Habana', {'carlos3': 'Carlos III', '4caminos': 'Cuatro Caminos', 'tvpedregal': 'Pedregal', 'caribehabana': 'Villa Diana'}],
 }
 
 RESULTADOS = {
