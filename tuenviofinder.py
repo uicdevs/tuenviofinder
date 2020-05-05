@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 
 # Python wrapper imports
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
-from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, KeyboardButton, InlineKeyboardButton
+from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, KeyboardButton, InlineKeyboardButton, ParseMode
 
 DIRECTORY = Path('.')
 
@@ -67,54 +67,6 @@ TTL = 600
 session = requests.Session()
 
 
-def update(offset):
-    # Llamar al metodo getUpdates del bot, utilizando un offset
-    respuesta = session.get(f'{URL}getUpdates?offset={str(offset)}&timeout={str(100)}')
-
-    # Decodificar la respuesta recibida a formato UTF8
-    mensajes_js = respuesta.content.decode('utf8')
-
-    # Convertir y retornar el string de JSON a un diccionario de Python
-    return json.loads(mensajes_js)
-
-
-def info_mensaje(mensaje):
-    # Comprobar el tipo de mensaje
-    if "text" in mensaje["message"]:
-        tipo = "texto"
-    elif "sticker" in mensaje["message"]:
-        tipo = "sticker"
-    elif "animation" in mensaje["message"]:
-        tipo = "animacion"  # Nota: los GIF cuentan como animaciones
-    elif "photo" in mensaje["message"]:
-        tipo = "foto"
-    else:
-        # Para no hacer mas largo este ejemplo, el resto de tipos entran
-        # en la categoria "otro"
-        tipo = "otro"
-
-    # Recoger la info del mensaje (remitente, id del chat e id del mensaje)
-    persona = mensaje["message"]["from"]["first_name"]
-    id_chat = mensaje["message"]["chat"]["id"]
-    id_update = mensaje["update_id"]
-
-    # Devolver toda la informacion
-    return tipo, id_chat, persona, id_update
-
-
-def leer_mensaje(mensaje):
-    # Extraer el texto, nombre de la persona e id del último mensaje recibido
-    texto = mensaje["message"]["text"]
-
-    # Devolver las dos id, el nombre y el texto del mensaje
-    return texto
-
-
-def enviar_mensaje(idchat, texto):
-    logger.debug(f'Sending message {idchat} >> {texto}')
-    # Llamar el metodo sendMessage del bot, passando el texto y la id del chat
-    session.get(f'{URL}sendMessage?text={texto}&chat_id={str(idchat)}&parse_mode=html')
-
 
 def update_soup(url, mensaje, ahora, tienda):
     respuesta = session.get(url)
@@ -157,36 +109,6 @@ def obtener_soup(mensaje, nombre, idchat):
                     soup_str = update_soup(url, mensaje, ahora, tienda)
             result.append((soup_str, url_base, tienda))
     return result
-
-
-def procesar_comando(mensaje, idchat):
-    # texto_respuesta, salida = '', ''
-    if mensaje.startswith('/start'):
-        texto_respuesta = 'Búsqueda de productos en tuenvio.cu. Envíe una o varias palabras y se le responderá la disponibilidad. También puede probar la /ayuda. Suerte!'
-        salida = 'ha iniciado chat con el bot.'
-    elif mensaje.startswith('/ayuda'):
-        texto_respuesta = 'Envíe una palabra para buscar. O puede seleccionar una provincia:\n\n'
-        for prov in PROVINCIAS:
-            texto_respuesta += f'/{prov}: {PROVINCIAS[prov][0]}\n'
-        salida = 'ha solicitado la ayuda.'
-    else:
-        comando = mensaje.split('/')[1]
-        # Vemos si comando es una provincia
-        if comando in PROVINCIAS:
-            USER[idchat] = {'prov': comando}
-            texto_respuesta = f'Ha seleccionado la provincia: {PROVINCIAS[comando][0]}.'
-            salida = f'ha cambiado la provincia de búsqueda a {PROVINCIAS[comando][0]}.'
-        # Si no entonces comando es un identificador de producto
-        elif comando in PRODUCTOS:
-            prov = USER[idchat]['prov']
-            producto = PRODUCTOS[comando][prov]['producto']
-            link = PRODUCTOS[comando][prov]['link']
-            texto_respuesta = f'Consultando: {producto}\n\nClick para ver en: {link}'
-            salida = f'ha consultado el link del producto {producto}.'
-        else:
-            texto_respuesta = 'Ha seleccionado incorrectamente el comando de provincia. Por favor, utilice la /ayuda.'
-            salida = 'ha utilizado incorrectamente la ayuda.'
-    return texto_respuesta, salida
 
 
 def debug_print(message):
@@ -260,7 +182,7 @@ dispatcher.add_handler(CallbackQueryHandler(teclado_provincias))
 
 
 # Definicion del comando /prov
-# Al pulsar /prov en el teclado se envía el nuevo teclado con las provincias
+# Al pulsar /prov en el teclado se envía el nuevo teclado inline con las provincias
 def prov(update, context):
     botones_provincias = []
     for prov in PROVINCIAS:
@@ -269,9 +191,6 @@ def prov(update, context):
 
     teclado = construir_menu(botones_provincias, n_cols=3)
 
-    #teclado.append(['/start', '/ayuda'])
-
-    #reply_markup = ReplyKeyboardMarkup(teclado, resize_keyboard=True)
     reply_markup = InlineKeyboardMarkup(teclado)
 
     context.bot.send_message(chat_id=update.effective_chat.id,
@@ -283,6 +202,7 @@ dispatcher.add_handler( CommandHandler('prov', prov) )
 
 
 # Generar masivamente los comandos de selección de provincia
+# TODO: Responder cuando se pasa como argumento el producto
 def seleccionar_provincia(update, context):
     # Seleccionar el id de provincia sin "/"
     prov = update.message.text[1:]
@@ -294,6 +214,42 @@ def seleccionar_provincia(update, context):
 for prov in PROVINCIAS:
     dispatcher.add_handler( CommandHandler( prov, seleccionar_provincia) )
 
+
+# Procesar los textos de búsqueda de productos
+def buscar_producto(update, context):
+    palabra = update.message.text
+    idchat = update.effective_chat.id
+    nombre = update.effective_user.username
+
+    texto_respuesta = ''
+
+    try:
+        for soup, url_base, tienda in obtener_soup(palabra, nombre, idchat):
+            prov = USER[idchat]['prov']
+            nombre_tienda = PROVINCIAS[prov][1][tienda]
+            thumb_setting = soup.select('div.thumbSetting')
+            texto_respuesta += f'[Resultados en: {nombre_tienda}]\n\n'
+            for child in thumb_setting:
+                answer = True
+                producto = child.select('div.thumbTitle a')[0].contents[0]
+                phref = child.select('div.thumbTitle a')[0]['href']
+                pid = phref.split('&')[0].split('=')[1]
+                plink = f'{url_base}/{phref}'
+                if pid not in PRODUCTOS:
+                    PRODUCTOS[pid] = dict()
+                    PRODUCTOS[pid][prov] = {'producto': producto, 'link': plink}
+                else:
+                    if prov not in PRODUCTOS[pid]:
+                        PRODUCTOS[pid][prov] = {'producto': producto, 'link': plink}
+                precio = child.select('div.thumbPrice span')[0].contents[0]
+                texto_respuesta += producto + ' --> ' + precio + urllib.parse.quote(f' <a href="{plink}">[ver producto]</a>') + '\n'
+            texto_respuesta += "\n"
+    except Exception as inst:
+        texto_respuesta = f'Ocurrió la siguiente excepción: {str(inst)}'
+    
+    context.bot.send_message(chat_id=idchat, text=texto_respuesta, parse_mode='HTML' )
+
+dispatcher.add_handler( MessageHandler(Filters.text, buscar_producto) )
 
 # No procesar comandos incorrectos
 def desconocido(update, context):
