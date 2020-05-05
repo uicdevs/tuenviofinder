@@ -224,6 +224,7 @@ def buscar_producto(update, context):
     texto_respuesta = ''
 
     if update.effective_chat.id in USER:
+        answer = False
         try:
             for soup, url_base, tienda in obtener_soup(palabra, nombre, idchat):
                 prov = USER[idchat]['prov']
@@ -244,6 +245,11 @@ def buscar_producto(update, context):
     else:
         texto_respuesta = f'Debe seleccionar antes su provincia: hágalo mediante el menú de /ayuda.' 
     
+    if answer:
+        texto_respuesta = f'🎉🎉🎉¡¡¡Encontrado!!! 🎉🎉🎉\n\n{texto_respuesta}'
+    else:
+        texto_respuesta = 'No hay productos que contengan la palabra buscada ... 😭'
+
     context.bot.send_message(chat_id=idchat, text=texto_respuesta, parse_mode='HTML' )
 
 dispatcher.add_handler( MessageHandler(Filters.text, buscar_producto) )
@@ -258,95 +264,3 @@ def desconocido(update, context):
 dispatcher.add_handler( MessageHandler(Filters.command, desconocido) )
 
 updater.start_polling(allowed_updates=[])
-
-#updater.idle()
-
-
-
-
-# Variable para almacenar la ID del ultimo mensaje procesado
-# ultima_id = 0
-
-# while (True):
-#     try:
-#         mensajes_diccionario = update(ultima_id)
-#         for i in mensajes_diccionario['result']:
-
-#             # Guardar la informacion del mensaje
-#             try:
-#                 tipo, idchat, nombre, id_update = info_mensaje(i)
-#             except (IndexError, Exception):
-#                 tipo, idchat, nombre, id_update = 'delete', '744256293', 'Disnel 56', 1
-
-#             answer = False
-#             # Generar una respuesta dependiendo del tipo de mensaje
-#             if tipo == "texto":
-#                 mensaje = leer_mensaje(i)
-#                 texto_respuesta = ""
-#                 answer = False
-#                 if mensaje.startswith("/"):
-#                     texto_respuesta, salida = procesar_comando(mensaje, idchat)
-#                     debug_print(nombre + " " + salida)
-#                 else:
-#                     try:
-#                         for soup, url_base, tienda in obtener_soup(mensaje, nombre, idchat):
-#                             prov = USER[idchat]['prov']
-#                             nombre_tienda = PROVINCIAS[prov][1][tienda]
-#                             thumb_setting = soup.select('div.thumbSetting')
-#                             texto_respuesta += f'[Resultados en: {nombre_tienda}]\n\n'
-#                             for child in thumb_setting:
-#                                 answer = True
-#                                 producto = child.select('div.thumbTitle a')[0].contents[0]
-#                                 phref = child.select('div.thumbTitle a')[0]['href']
-#                                 pid = phref.split('&')[0].split('=')[1]
-#                                 plink = f'{url_base}/{phref}'
-#                                 if pid not in PRODUCTOS:
-#                                     PRODUCTOS[pid] = dict()
-#                                     PRODUCTOS[pid][prov] = {'producto': producto, 'link': plink}
-#                                 else:
-#                                     if prov not in PRODUCTOS[pid]:
-#                                         PRODUCTOS[pid][prov] = {'producto': producto, 'link': plink}
-#                                 precio = child.select('div.thumbPrice span')[0].contents[0]
-#                                 texto_respuesta += producto + ' --> ' + precio + urllib.parse.quote(f' <a href="{plink}">[ver producto]</a>') + '\n'
-#                             texto_respuesta += "\n"
-#                     except Exception as inst:
-#                         texto_respuesta = f'Ocurrió la siguiente excepción: {str(inst)}'
-#             else:
-#                 texto_respuesta = 'Solo se admiten textos.'
-
-#             # Si la ID del mensaje es mayor que el ultimo, se guarda la ID + 1
-#             if id_update > (ultima_id - 1):
-#                 ultima_id = id_update + 1
-
-#             # Enviar la respuesta
-#             respuestas_posibles = ['Búsqueda', 'Ha seleccionado', 'Consultando', 'Envíe']
-#             hay_resp_posible = False
-#             for rp in respuestas_posibles:
-#                 if texto_respuesta.startswith(rp):
-#                     hay_resp_posible = True
-#                     break
-
-#             if texto_respuesta:
-#                 if texto_respuesta.startswith('Ocurrió'):
-#                     enviar_mensaje('744256293', texto_respuesta)
-#                     debug_print('error')
-#                 elif hay_resp_posible:
-#                     enviar_mensaje(idchat, texto_respuesta)
-#                     debug_print('Busqueda o seleccion de provincia o consulta de producto')
-#                 else:
-#                     if answer:
-#                         texto_respuesta = f'🎉🎉🎉¡¡¡Encontrado!!! 🎉🎉🎉\n\n{texto_respuesta}'
-#                         enviar_mensaje(idchat, texto_respuesta)
-#                         debug_print(texto_respuesta)
-#                     else:
-#                         enviar_mensaje(idchat, 'No hay productos que contengan la palabra buscada ... 😭')
-#                         debug_print('no hubo respuesta')
-#                         debug_print(texto_respuesta)
-#             else:
-#                 enviar_mensaje(idchat, 'No hay productos que contengan la palabra buscada ... 😭')
-#                 debug_print('mensaje vacio')
-
-#         # Vaciar el diccionario
-#         mensajes_diccionario = []
-#     except Exception as ex:
-#         logger.error(f'Unhandled error >> {ex}')
