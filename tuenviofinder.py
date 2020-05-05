@@ -145,27 +145,34 @@ def mensaje_seleccion_provincia(prov):
     provincia = PROVINCIAS[prov][0]
     texto_respuesta = 'Ha seleccionado: <b>' + provincia + '</b>. La búsqueda se realizará en:\n\n'
     for tid, tienda in obtener_tiendas(prov):
-        texto_respuesta += f'🏬 {tienda}. Buscar en /{tid}\n'
+        # Descomentar cuando utilicemos busquedas en las tiendas
+        #texto_respuesta += f'🏬 {tienda}. Buscar en /{tid}\n'
+        texto_respuesta += f'🏬 {tienda}.\n\n'
     return texto_respuesta
 
 
 # Definicion del comando /start
 def start(update, context):
+    iniciar_aplicacion(update, context)
+
+
+start_handler = CommandHandler('start', start)
+dispatcher.add_handler(start_handler)
+
+
+def iniciar_aplicacion(update, context):
     mensaje_bienvenida = 'Búsqueda de productos en tuenvio.cu. Envíe una o varias palabras y el bot se encargará de chequear el sitio por usted. Consulte la /ayuda para seleccionar su provincia. Suerte!'
 
     button_list = [
-        ['/start', '/ayuda', '/prov'],
+        ['Inicio', 'Ayuda'],
+        ['Provincias'],
     ]
 
     reply_markup = ReplyKeyboardMarkup(button_list, resize_keyboard=True)
     context.bot.send_message(chat_id=update.effective_chat.id,
                              text=mensaje_bienvenida,
                              reply_markup=reply_markup)
-
-
-start_handler = CommandHandler('start', start)
-dispatcher.add_handler(start_handler)
-
+    
 
 # Definicion del comando /ayuda
 def ayuda(update, context):
@@ -199,6 +206,14 @@ dispatcher.add_handler(CallbackQueryHandler(teclado_provincias))
 # Definicion del comando /prov
 # Al pulsar /prov en el teclado se envía el nuevo teclado inline con las provincias
 def prov(update, context):
+    generar_teclado_provincias(update, context)
+
+
+dispatcher.add_handler(CommandHandler('prov', prov))
+
+
+
+def generar_teclado_provincias(update, context):
     botones_provincias = []
     for prov in PROVINCIAS:
         provincia = PROVINCIAS[prov][0]
@@ -209,11 +224,9 @@ def prov(update, context):
     reply_markup = InlineKeyboardMarkup(teclado)
 
     context.bot.send_message(chat_id=update.effective_chat.id,
-                             text='Seleccione la provincia a continuación',
+                             text='Seleccione una provincia',
                              reply_markup=reply_markup)
 
-
-dispatcher.add_handler(CommandHandler('prov', prov))
 
 
 # Generar masivamente los comandos de selección de provincia
@@ -230,14 +243,13 @@ for prov in PROVINCIAS:
     dispatcher.add_handler(CommandHandler(prov, seleccionar_provincia))
 
 
-# Procesar los textos de búsqueda de productos
-def buscar_producto(update, context):
+# Buscar los productos
+def buscar_productos(update, context):
     palabra = update.message.text
     idchat = update.effective_chat.id
     nombre = update.effective_user.username
 
     texto_respuesta = ''
-
     if update.effective_chat.id in USER:
         answer = False
         try:
@@ -268,7 +280,23 @@ def buscar_producto(update, context):
     context.bot.send_message(chat_id=idchat, text=texto_respuesta, parse_mode='HTML')
 
 
-dispatcher.add_handler(MessageHandler(Filters.text, buscar_producto))
+
+# Procesar mensajes de texto que no son comandos
+def procesar_palabra(update, context):
+    palabra = update.message.text
+    
+
+    if palabra == 'Provincias':
+        generar_teclado_provincias(update, context)
+    elif palabra == 'Ayuda':
+        ayuda(update, context)
+    elif palabra == 'Inicio':
+        iniciar_aplicacion(update, context)
+    else:
+        buscar_productos(update, context)
+
+
+dispatcher.add_handler(MessageHandler(Filters.text, procesar_palabra))
 
 
 # No procesar comandos incorrectos
