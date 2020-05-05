@@ -31,6 +31,7 @@ USER = {
 }
 
 PROVINCIAS = {
+    'lh': ['La Habana', {'carlos3': 'Carlos Tercero', '4caminos': 'Cuatro Caminos', 'tvpedregal': 'El Pedregal'}],
     'pr': ['Pinar del Río', {'pinar': 'Pinar del Río'}],
     'ar': ['Artemisa', {'artemisa': 'Artemisa'}],
     'my': ['Mayabeque', {'mayabeque-tv': 'Mayabeque'}],
@@ -46,7 +47,6 @@ PROVINCIAS = {
     'st': ['Santiago de Cuba', {'santiago': 'Santiago de Cuba'}],
     'gt': ['Guantánamo', {'guantanamo': 'Guantánamo'}],
     'ij': ['La Isla', {'isla': 'La Isla'}],
-    'lh': ['La Habana', {'carlos3': 'Carlos Tercero', '4caminos': 'Cuatro Caminos'}]
 }
 
 RESULTADOS = {
@@ -58,7 +58,7 @@ PRODUCTOS = {
 }
 
 # Tiempo en segundos que una palabra de búsqueda permanece válida
-TTL = 300
+TTL = 600
 
 session = requests.Session()
 
@@ -233,7 +233,7 @@ while (True):
                                     if prov not in PRODUCTOS[pid]:
                                         PRODUCTOS[pid][prov] = {'producto': producto, 'link': plink}
                                 precio = child.select('div.thumbPrice span')[0].contents[0]
-                                texto_respuesta += producto + ' --> ' + precio + urllib.parse.quote(f' <a href="{plink}">[ver más]</a>') + '\n'
+                                texto_respuesta += producto + ' --> ' + precio + urllib.parse.quote(f' <a href="{plink}">[ver producto]</a>') + '\n'
                             texto_respuesta += "\n"
                     except Exception as inst:
                         texto_respuesta = f'Ocurrió la siguiente excepción: {str(inst)}'
