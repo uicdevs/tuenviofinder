@@ -44,7 +44,7 @@ PROVINCIAS = {
     'lt': ['Las Tunas', {'tunas': 'Las Tunas'}],
     'hg': ['Holguín', {'holguin': 'Holguín'}],
     'gr': ['Granma', {'granma': 'Granma'}],
-    'st': ['Santiago de Cuba', {'santiago': 'Santiago de Cuba'}],
+    'sc': ['Santiago de Cuba', {'santiago': 'Santiago de Cuba'}],
     'gt': ['Guantánamo', {'guantanamo': 'Guantánamo'}],
     'ij': ['La Isla', {'isla': 'La Isla'}],
     'lh': ['La Habana', {'carlos3': 'Carlos III', '4caminos': 'Cuatro Caminos', 'tvpedregal': 'Pedregal', 'caribehabana': 'Villa Diana'}],
@@ -134,18 +134,18 @@ def construir_menu(buttons,
         menu.append([footer_buttons])
     return menu
 
-# Retorna una lista con las tiendas de una provincia
+# Retorna una lista con tuplas de id de tienda y su nombre
 def obtener_tiendas(prov):
     tiendas = []
     for tid in PROVINCIAS[prov][1]:
-        tiendas.append(PROVINCIAS[prov][1][tid])
+        tiendas.append( (tid, PROVINCIAS[prov][1][tid]) )
     return tiendas
 
 def mensaje_seleccion_provincia(prov):
     provincia = PROVINCIAS[prov][0]
     texto_respuesta = 'Ha seleccionado: <b>' + provincia + '</b>. La búsqueda se realizará en:\n\n'
-    for tienda in obtener_tiendas(prov):
-        texto_respuesta += '🏬 ' + tienda + '\n'
+    for tid, tienda in obtener_tiendas(prov):
+        texto_respuesta += f'🏬 {tienda}. Buscar en /{tid}\n'
     return texto_respuesta
 
 
