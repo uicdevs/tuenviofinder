@@ -137,7 +137,7 @@ def construir_menu(buttons,
 
 # Definicion del comando /start
 def start(update, context):
-    mensaje_bienvenida = 'Búsqueda de productos en tuenvio.cu. Envíe una o varias palabras y se le responderá la disponibilidad. También puede probar la /ayuda. Suerte!'
+    mensaje_bienvenida = 'Búsqueda de productos en tuenvio.cu. Envíe una o varias palabras y se le responderá la disponibilidad. Consulte la /ayuda para seleccionar su provincia. Suerte!'
 
     button_list = [
         ['/start', '/ayuda', '/prov'],
@@ -155,7 +155,7 @@ dispatcher.add_handler(start_handler)
 
 # Definicion del comando /ayuda
 def ayuda(update, context):
-    texto_respuesta = 'Envíe los términos a buscar o seleccione una provincia:\n'
+    texto_respuesta = 'Envíe los términos a buscar o seleccione una provincia:\n\n'
     for prov in PROVINCIAS:
         texto_respuesta += f'/{prov}: {PROVINCIAS[prov][0]}\n'
 
@@ -223,29 +223,26 @@ def buscar_producto(update, context):
 
     texto_respuesta = ''
 
-    try:
-        for soup, url_base, tienda in obtener_soup(palabra, nombre, idchat):
-            prov = USER[idchat]['prov']
-            nombre_tienda = PROVINCIAS[prov][1][tienda]
-            thumb_setting = soup.select('div.thumbSetting')
-            texto_respuesta += f'[Resultados en: {nombre_tienda}]\n\n'
-            for child in thumb_setting:
-                answer = True
-                producto = child.select('div.thumbTitle a')[0].contents[0]
-                phref = child.select('div.thumbTitle a')[0]['href']
-                pid = phref.split('&')[0].split('=')[1]
-                plink = f'{url_base}/{phref}'
-                if pid not in PRODUCTOS:
-                    PRODUCTOS[pid] = dict()
-                    PRODUCTOS[pid][prov] = {'producto': producto, 'link': plink}
-                else:
-                    if prov not in PRODUCTOS[pid]:
-                        PRODUCTOS[pid][prov] = {'producto': producto, 'link': plink}
-                precio = child.select('div.thumbPrice span')[0].contents[0]
-                texto_respuesta += producto + ' --> ' + precio + urllib.parse.quote(f' <a href="{plink}">[ver producto]</a>') + '\n'
-            texto_respuesta += "\n"
-    except Exception as inst:
-        texto_respuesta = f'Ocurrió la siguiente excepción: {str(inst)}'
+    if update.effective_chat.id in USER:
+        try:
+            for soup, url_base, tienda in obtener_soup(palabra, nombre, idchat):
+                prov = USER[idchat]['prov']
+                nombre_tienda = PROVINCIAS[prov][1][tienda]
+                thumb_setting = soup.select('div.thumbSetting')
+                texto_respuesta += f'[Resultados en: {nombre_tienda}]\n\n'
+                for child in thumb_setting:
+                    answer = True
+                    producto = child.select('div.thumbTitle a')[0].contents[0]
+                    phref = child.select('div.thumbTitle a')[0]['href']
+                    pid = phref.split('&')[0].split('=')[1]
+                    plink = f'{url_base}/{phref}'
+                    precio = child.select('div.thumbPrice span')[0].contents[0]
+                    texto_respuesta += producto + ' --> ' + precio + f' <a href="{plink}">[ver producto]</a>' + '\n'
+                texto_respuesta += "\n"
+        except Exception as inst:
+            texto_respuesta = f'Ocurrió la siguiente excepción: {str(inst)}'
+    else:
+        texto_respuesta = f'Debe seleccionar antes su provincia: hágalo mediante el menú de /ayuda.' 
     
     context.bot.send_message(chat_id=idchat, text=texto_respuesta, parse_mode='HTML' )
 
