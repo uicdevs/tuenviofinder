@@ -31,23 +31,29 @@ URL = f'https://api.telegram.org/bot{TOKEN}/'
 
 USER, RESULTADOS, PRODUCTOS = {}, {}, {}
 
+BOTONES = {
+    'INICIO': '🚀 Inicio',
+    'AYUDA': '❓ Ayuda',
+    'PROVINCIAS': '🌆 Provincias'
+}
+
 PROVINCIAS = {
-    'pr': ['Pinar del Río', {'pinar': 'Pinar del Río'}],
-    'ar': ['Artemisa', {'artemisa': 'Artemisa'}],
-    'my': ['Mayabeque', {'mayabeque-tv': 'Mayabeque'}],
-    'mt': ['Matanzas', {'matanzas': 'Matanzas'}],
-    'cf': ['Cienfuegos', {'cienfuegos': 'Cienfuegos'}],
-    'vc': ['Villa Clara', {'villaclara': 'Villa Clara'}],
-    'ss': ['Sancti Spíritus', {'sancti': 'Sancti Spíritus'}],
-    'ca': ['Ciego de Ávila', {'ciego': 'Ciego de Ávila'}],
-    'cm': ['Camagüey', {'camaguey': 'Camagüey'}],
-    'lt': ['Las Tunas', {'tunas': 'Las Tunas'}],
-    'hg': ['Holguín', {'holguin': 'Holguín'}],
-    'gr': ['Granma', {'granma': 'Granma'}],
-    'sc': ['Santiago de Cuba', {'santiago': 'Santiago de Cuba'}],
-    'gt': ['Guantánamo', {'guantanamo': 'Guantánamo'}],
-    'ij': ['La Isla', {'isla': 'La Isla'}],
-    'lh': ['La Habana', {'carlos3': 'Carlos III', '4caminos': 'Cuatro Caminos', 'tvpedregal': 'Pedregal', 'caribehabana': 'Villa Diana'}],
+    'pr': ['Pinar del Río', {'pinar': 'Pinar del Río'}, '🚬'],
+    'ar': ['Artemisa', {'artemisa': 'Artemisa'}, '🏹'],
+    'my': ['Mayabeque', {'mayabeque-tv': 'Mayabeque'}, '🌪'],
+    'mt': ['Matanzas', {'matanzas': 'Matanzas'}, '🐊'],
+    'cf': ['Cienfuegos', {'cienfuegos': 'Cienfuegos'}, '🐘'],
+    'vc': ['Villa Clara', {'villaclara': 'Villa Clara'}, '🍊'],
+    'ss': ['Sancti Spíritus', {'sancti': 'Sancti Spíritus'}, '🐔'],
+    'ca': ['Ciego de Ávila', {'ciego': 'Ciego de Ávila'}, '🐯'],
+    'cm': ['Camagüey', {'camaguey': 'Camagüey'}, '🐂'],
+    'lt': ['Las Tunas', {'tunas': 'Las Tunas'}, '🌵'],
+    'hg': ['Holguín', {'holguin': 'Holguín'}, '🐶'],
+    'gr': ['Granma', {'granma': 'Granma'}, '🐴'],
+    'sc': ['Santiago de Cuba', {'santiago': 'Santiago de Cuba'}, '🐝'],
+    'gt': ['Guantánamo', {'guantanamo': 'Guantánamo'}, '🗿'],
+    'ij': ['La Isla', {'isla': 'La Isla'}, '🏴‍☠️'],
+    'lh': ['La Habana', {'carlos3': 'Carlos III', '4caminos': 'Cuatro Caminos', 'tvpedregal': 'Pedregal', 'caribehabana': 'Villa Diana'}, '🦁'],
 }
 
 
@@ -116,6 +122,24 @@ def debug_print(message):
     logger.debug(message)
 
 
+# Retorna una lista con tuplas de id de tienda y su nombre
+def obtener_tiendas(prov):
+    tiendas = []
+    for tid in PROVINCIAS[prov][1]:
+        tiendas.append( (tid, PROVINCIAS[prov][1][tid]) )
+    return tiendas
+
+def mensaje_seleccion_provincia(prov):
+    provincia = PROVINCIAS[prov][0]
+    logo = PROVINCIAS[prov][2]
+    texto_respuesta = f'Tiendas disponibles en: {logo} <b>{provincia}</b>:\n\n'
+    for tid, tienda in obtener_tiendas(prov):
+        # Descomentar cuando utilicemos busquedas en las tiendas
+        #texto_respuesta += f'🏬 {tienda}. Buscar en /{tid}\n'
+        texto_respuesta += f'🛒 {tienda}.\n\n'
+    return texto_respuesta
+
+
 # Inicializar todo
 
 updater = Updater(TOKEN, use_context=True)
@@ -134,22 +158,6 @@ def construir_menu(buttons,
         menu.append([footer_buttons])
     return menu
 
-# Retorna una lista con tuplas de id de tienda y su nombre
-def obtener_tiendas(prov):
-    tiendas = []
-    for tid in PROVINCIAS[prov][1]:
-        tiendas.append( (tid, PROVINCIAS[prov][1][tid]) )
-    return tiendas
-
-def mensaje_seleccion_provincia(prov):
-    provincia = PROVINCIAS[prov][0]
-    texto_respuesta = 'Ha seleccionado: <b>' + provincia + '</b>. La búsqueda se realizará en:\n\n'
-    for tid, tienda in obtener_tiendas(prov):
-        # Descomentar cuando utilicemos busquedas en las tiendas
-        #texto_respuesta += f'🏬 {tienda}. Buscar en /{tid}\n'
-        texto_respuesta += f'🏬 {tienda}.\n\n'
-    return texto_respuesta
-
 
 # Definicion del comando /start
 def start(update, context):
@@ -164,15 +172,15 @@ def iniciar_aplicacion(update, context):
     mensaje_bienvenida = 'Búsqueda de productos en tuenvio.cu. Envíe una o varias palabras y el bot se encargará de chequear el sitio por usted. Consulte la /ayuda para seleccionar su provincia. Suerte!'
 
     button_list = [
-        ['Inicio', 'Ayuda'],
-        ['Provincias'],
+        [ BOTONES['INICIO'], BOTONES['AYUDA'] ],
+        [ BOTONES['PROVINCIAS'] ],
     ]
 
     reply_markup = ReplyKeyboardMarkup(button_list, resize_keyboard=True)
     context.bot.send_message(chat_id=update.effective_chat.id,
                              text=mensaje_bienvenida,
                              reply_markup=reply_markup)
-    
+
 
 # Definicion del comando /ayuda
 def ayuda(update, context):
@@ -217,7 +225,8 @@ def generar_teclado_provincias(update, context):
     botones_provincias = []
     for prov in PROVINCIAS:
         provincia = PROVINCIAS[prov][0]
-        botones_provincias.append(InlineKeyboardButton(provincia, callback_data=prov))
+        logo = PROVINCIAS[prov][2]
+        botones_provincias.append(InlineKeyboardButton(f'{logo} {provincia}', callback_data=prov))
 
     teclado = construir_menu(botones_provincias, n_cols=3)
 
@@ -233,10 +242,19 @@ def generar_teclado_provincias(update, context):
 # TODO: Responder cuando se pasa como argumento el producto
 def seleccionar_provincia(update, context):
     # Seleccionar el id de provincia sin "/"
-    prov = update.message.text[1:]
-    texto_respuesta = mensaje_seleccion_provincia(prov)
-    USER[update.effective_chat.id] = {'prov': prov}
-    context.bot.send_message(chat_id=update.effective_chat.id, text=texto_respuesta, parse_mode='HTML')
+    # Si no hay argumentos solo se cambia de provincia
+    if not context.args:
+        debug_print(f'no hubo argumentos')
+        prov = update.message.text[1:]
+        texto_respuesta = mensaje_seleccion_provincia(prov)
+        USER[update.effective_chat.id] = {'prov': prov}
+        context.bot.send_message(chat_id=update.effective_chat.id, text=texto_respuesta, parse_mode='HTML')
+    else:
+        debug_print(f'si hubo argumentos: {update.message.text}')
+        prov = update.message.text.split()[0].split('/')[1]
+        palabras = update.message.text.split()[1]
+        USER[update.effective_chat.id] = {'prov': prov}
+        buscar_productos(update, context, palabras)
 
 
 for prov in PROVINCIAS:
@@ -244,8 +262,9 @@ for prov in PROVINCIAS:
 
 
 # Buscar los productos
-def buscar_productos(update, context):
-    palabra = update.message.text
+def buscar_productos(update, context, palabras=False):
+    if not palabras:
+        palabras = update.message.text
     idchat = update.effective_chat.id
     nombre = update.effective_user.username
 
@@ -253,7 +272,7 @@ def buscar_productos(update, context):
     if update.effective_chat.id in USER:
         answer = False
         try:
-            for soup, url_base, tienda in obtener_soup(palabra, nombre, idchat):
+            for soup, url_base, tienda in obtener_soup(palabras, nombre, idchat):
                 prov = USER[idchat]['prov']
                 nombre_tienda = PROVINCIAS[prov][1][tienda]
                 thumb_setting = soup.select('div.thumbSetting')
@@ -283,14 +302,13 @@ def buscar_productos(update, context):
 
 # Procesar mensajes de texto que no son comandos
 def procesar_palabra(update, context):
-    palabra = update.message.text
-    
+    palabra = update.message.text    
 
-    if palabra == 'Provincias':
+    if palabra == BOTONES['PROVINCIAS']:
         generar_teclado_provincias(update, context)
-    elif palabra == 'Ayuda':
+    elif palabra == BOTONES['AYUDA']:
         ayuda(update, context)
-    elif palabra == 'Inicio':
+    elif palabra == BOTONES['INICIO']:
         iniciar_aplicacion(update, context)
     else:
         buscar_productos(update, context)
