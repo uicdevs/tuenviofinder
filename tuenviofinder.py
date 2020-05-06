@@ -276,7 +276,7 @@ def buscar_productos(update, context, palabras=False):
                 prov = USER[idchat]['prov']
                 nombre_tienda = PROVINCIAS[prov][1][tienda]
                 thumb_setting = soup.select('div.thumbSetting')
-                texto_respuesta += f'[Resultados en: 🏬 {nombre_tienda}]\n\n'
+                texto_respuesta += f'<b>Resultados en: 🏬 {nombre_tienda}</b>\n\n'
                 for child in thumb_setting:
                     answer = True
                     producto = child.select('div.thumbTitle a')[0].contents[0]
@@ -284,17 +284,17 @@ def buscar_productos(update, context, palabras=False):
                     pid = phref.split('&')[0].split('=')[1]
                     plink = f'{url_base}/{phref}'
                     precio = child.select('div.thumbPrice span')[0].contents[0]
-                    texto_respuesta += producto + ' --> ' + precio + f' <a href="{plink}">[ver producto]</a>' + '\n'
+                    texto_respuesta += f'📦{producto} --> {precio} <a href="{plink}">[ver producto]</a>\n'
                 texto_respuesta += "\n"
+            
+            if answer:
+                texto_respuesta = f'🎉🎉🎉¡¡¡Encontrado!!! 🎉🎉🎉\n\n{texto_respuesta}'
+            else:
+                texto_respuesta = 'No hay productos que contengan la palabra buscada ... 😭'
         except Exception as inst:
             texto_respuesta = f'Ocurrió la siguiente excepción: {str(inst)}'
     else:
         texto_respuesta = f'Debe seleccionar antes su provincia: hágalo mediante el menú de /ayuda.'
-
-    if answer:
-        texto_respuesta = f'🎉🎉🎉¡¡¡Encontrado!!! 🎉🎉🎉\n\n{texto_respuesta}'
-    else:
-        texto_respuesta = 'No hay productos que contengan la palabra buscada ... 😭'
 
     context.bot.send_message(chat_id=idchat, text=texto_respuesta, parse_mode='HTML')
 
