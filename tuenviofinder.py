@@ -29,12 +29,13 @@ TOKEN = os.getenv('TOKEN')
 BD_FILE = os.getenv('BD_FILE')
 URL = f'https://api.telegram.org/bot{TOKEN}/'
 
-USER, RESULTADOS, PRODUCTOS = {}, {}, {}
+RESULTADOS, PRODUCTOS, USER, TIENDAS_COMANDOS = {}, {}, {}, {}
 
 BOTONES = {
     'INICIO': '🚀 Inicio',
     'AYUDA': '❓ Ayuda',
-    'PROVINCIAS': '🌆 Provincias'
+    'PROVINCIAS': '🌆 Provincias',
+    'CATEGORIAS': '🔰 Categorías'
 }
 
 PROVINCIAS = {
@@ -56,6 +57,37 @@ PROVINCIAS = {
     'lh': ['La Habana', {'carlos3': 'Carlos III', '4caminos': 'Cuatro Caminos', 'tvpedregal': 'Pedregal', 'caribehabana': 'Villa Diana'}, '🦁'],
 }
 
+DEPARTAMENTOS = {
+    'Alimentos y Bebidas': {
+        '52': 'Bebidas y Jugos',
+        '54': 'Aderezos, Aliños y Salsas',
+        '46087': 'Leche',
+        '46081': 'Alimentos Refrigerados',
+        '62006': 'Productos en Conserva',
+    },
+    'Belleza': {
+        '62001': 'Artículos Personales',
+        '46077': 'Aseo Personal',
+        '46080': 'Cuidado del Cabello',
+        '100002': 'Detergentes y Jabones',        
+    },
+    'Electrónica': {
+        '59': 'Electrodomésticos'
+    },
+    'Para el Hogar': {
+        '46078': 'Limpieza del Hogar',
+        '60001': 'Útiles'
+    }
+}
+
+TEXTO_AYUDA = f'<b>¡Bienvenido a la {BOTONES["AYUDA"]}!</b>\n\nEl bot cuenta con varias opciones para su manejo, siéntase libre de consultar esta \
+Ayuda siempre que lo considere necesario. \n\n<b>{BOTONES["INICIO"]}</b>: Reinicia el bot a sus opciones por defecto. \
+Sí, las búsquedas se realizarán en 🐴 <b>Granma</b> 😉.\n\n<b>{BOTONES["PROVINCIAS"]}</b>: Muestra un menú con las provincias donde se \
+realizarán las búsquedas.\n\n<b>{BOTONES["CATEGORIAS"]}</b>: Muestra las categorías disponibles en una tienda, que debe haber\
+ haber seleccionado previamente.\n\n 💥 <b>¡Comandos avanzados! 💥</b>\n\nSi siente pasión por los comandos \
+ le tenemos buenas noticias. Acceda a todos ellos directamente enviando la orden correspondiente seguida del caracter "/" \
+ <b>Por ejemplo:</b> /lh cambia la provincia de búsqueda a 🦁 <b>La Habana</b>. Otros comandos disponibles son /prov, /cat, /dep, /start y /ayuda.'
+
 
 # Tiempo en segundos que una palabra de búsqueda permanece válida
 TTL = 600
@@ -72,49 +104,6 @@ def inicializar_bd():
         debug_print("Error, base de datos inexistente")
         sys.exit(0)
     return (conn, c,)
-
-
-def actualizar_soup(url, mensaje, ahora, tienda):
-    respuesta = session.get(url)
-    data = respuesta.content.decode('utf8')
-    soup = BeautifulSoup(data, 'html.parser')
-    if mensaje not in RESULTADOS:
-        RESULTADOS[mensaje] = dict()
-    RESULTADOS[mensaje][tienda] = {'tiempo': ahora, 'soup': soup}
-    return soup
-
-
-def obtener_soup(mensaje, nombre, idchat):
-    # Arreglo con una tupla para cada tienda con sus valores
-    result = []
-    if idchat in USER:
-        # Seleccionar provincia que tiene el usuario en sus ajustes
-        prov = USER[idchat]['prov']
-
-        # Se hace el procesamiento para cada tienda en cada provincia
-        for tienda in PROVINCIAS[prov][1]:
-            url_base = f'https://www.tuenvio.cu/{tienda}'
-            url = f'{url_base}/Search.aspx?keywords=%22{mensaje}%22&depPid=0'
-            respuesta, data, soup_str = '', '', ''
-            ahora = datetime.datetime.now()
-
-            # Si el resultado no se encuentra cacheado buscar y guardar
-            if mensaje not in RESULTADOS or tienda not in RESULTADOS[mensaje]:
-                debug_print(f'Buscando: "{mensaje}" para {nombre}')
-                soup_str = actualizar_soup(url, mensaje, ahora, tienda)
-            # Si el resultado está cacheado
-            elif tienda in RESULTADOS[mensaje]:
-                delta = ahora - RESULTADOS[mensaje][tienda]['tiempo']
-                # Si aún es válido se retorna lo que hay en cache
-                if delta.total_seconds() <= TTL:
-                    debug_print(f'"{mensaje}" aún en cache, no se realiza la búsqueda.')
-                    soup_str = RESULTADOS[mensaje][tienda]["soup"]
-                # Si no es válido se actualiza la cache
-                else:
-                    debug_print(f'Actualizando : "{mensaje}" para {nombre}')
-                    soup_str = actualizar_soup(url, mensaje, ahora, tienda)
-            result.append((soup_str, url_base, tienda))
-    return result
 
 
 def debug_print(message):
@@ -135,8 +124,9 @@ def mensaje_seleccion_provincia(prov):
     texto_respuesta = f'Tiendas disponibles en: {logo} <b>{provincia}</b>:\n\n'
     for tid, tienda in obtener_tiendas(prov):
         # Descomentar cuando utilicemos busquedas en las tiendas
-        #texto_respuesta += f'🏬 {tienda}. Buscar en /{tid}\n'
-        texto_respuesta += f'🛒 {tienda}.\n\n'
+        tid_no_dashs = tid.replace('-', '_')
+        texto_respuesta += f'🏬 {tienda}. /seleccionar_{tid_no_dashs}\n'
+        #texto_respuesta += f'🛒 {tienda}.\n\n'
     return texto_respuesta
 
 
@@ -163,62 +153,85 @@ def construir_menu(buttons,
 def start(update, context):
     iniciar_aplicacion(update, context)
 
-
-start_handler = CommandHandler('start', start)
-dispatcher.add_handler(start_handler)
+dispatcher.add_handler( CommandHandler('start', start) )
 
 
 def iniciar_aplicacion(update, context):
-    mensaje_bienvenida = 'Búsqueda de productos en tuenvio.cu. Envíe una o varias palabras y el bot se encargará de chequear el sitio por usted. Consulte la /ayuda para seleccionar su provincia. Suerte!'
+    mensaje_bienvenida = 'Búsqueda de productos en tuenvio.cu. Envíe una o varias palabras\
+ y el bot se encargará de chequear el sitio por usted. Consulte la /ayuda para obtener más información. Suerte!'
+
+    idchat = update.effective_chat.id
 
     button_list = [
         [ BOTONES['INICIO'], BOTONES['AYUDA'] ],
-        [ BOTONES['PROVINCIAS'] ],
+        [ BOTONES['PROVINCIAS'], BOTONES['CATEGORIAS'] ],
     ]
 
+    # Valores por defecto
+    USER[idchat] = {
+        'prov': 'gr',
+        'tienda': 'granma',
+        'cat': 'Alimentos y Bebidas',
+        'dep': '46081'
+    }
+
     reply_markup = ReplyKeyboardMarkup(button_list, resize_keyboard=True)
-    context.bot.send_message(chat_id=update.effective_chat.id,
+    context.bot.send_message(chat_id=idchat,
                              text=mensaje_bienvenida,
                              reply_markup=reply_markup)
 
 
 # Definicion del comando /ayuda
 def ayuda(update, context):
-    texto_respuesta = 'Envíe los términos a buscar o seleccione una provincia:\n\n'
-    for prov in PROVINCIAS:
-        texto_respuesta += f'/{prov}: {PROVINCIAS[prov][0]}\n'
-
     context.bot.send_message(chat_id=update.effective_chat.id,
-                             text=texto_respuesta)
+                             text=TEXTO_AYUDA,
+                             parse_mode='HTML')
 
 
 dispatcher.add_handler(CommandHandler('ayuda', ayuda))
 
 
-# Manejador del teclado inline de provincias
-def teclado_provincias(update, context):
-    query = update.callback_query
-    prov = query.data
-    provincia = PROVINCIAS[prov][0]
-    USER[update.effective_chat.id] = {'prov': prov}
-    texto_respuesta = mensaje_seleccion_provincia(prov)
-    context.bot.edit_message_text(text=texto_respuesta,
-                                  chat_id=query.message.chat_id,
-                                  message_id=query.message.message_id,
-                                  parse_mode='HTML')
+# Manejador de los teclados inlines disponibles
+def manejador_teclados_inline(update, context):
+    try:
+        query = update.callback_query
+        idchat = update.effective_chat.id
+        tienda = USER[idchat]['tienda']
+        cat = USER[idchat]['cat']
+        if query.data in PROVINCIAS:
+            prov = query.data
+            provincia = PROVINCIAS[prov][0]
+            USER[idchat]['prov'] = prov
+            if 'tienda' in USER[idchat]:
+                del USER[idchat]['tienda']
+            texto_respuesta = mensaje_seleccion_provincia(prov)
+            context.bot.edit_message_text(text=texto_respuesta,
+                                          chat_id=query.message.chat_id,
+                                          message_id=query.message.message_id,
+                                          parse_mode='HTML')
+        # Cuando se selecciona una categoría
+        elif query.data in DEPARTAMENTOS[tienda]:
+            cat = query.data
+            USER[idchat]['cat'] = cat
+            generar_teclado_departamentos(update, context)
+        # Cuando se selecciona un departamento
+        elif query.data in DEPARTAMENTOS[tienda][cat]:
+            USER[idchat]['dep'] = query.data
+            buscar_productos_en_departamento(update, context)
+    except Exception as ex:
+        print(str(ex))
 
 
-dispatcher.add_handler(CallbackQueryHandler(teclado_provincias))
+dispatcher.add_handler(CallbackQueryHandler(manejador_teclados_inline))
 
 
 # Definicion del comando /prov
-# Al pulsar /prov en el teclado se envía el nuevo teclado inline con las provincias
+# Al enviar /prov se recibe el teclado inline con las provincias
 def prov(update, context):
     generar_teclado_provincias(update, context)
 
 
 dispatcher.add_handler(CommandHandler('prov', prov))
-
 
 
 def generar_teclado_provincias(update, context):
@@ -237,6 +250,69 @@ def generar_teclado_provincias(update, context):
                              reply_markup=reply_markup)
 
 
+# Definicion del comando /dptos
+# Al enviar /dptos en el teclado se recibe el teclado inline con los departamentos
+def dptos(update, context):
+    generar_teclado_departamentos(update, context)
+
+
+dispatcher.add_handler(CommandHandler('dptos', dptos))
+
+
+
+# Generar el teclado con las categorías
+def generar_teclado_categorias(update, context):
+    try:
+        botones = []
+        idchat = update.effective_chat.id
+        tienda = USER[idchat]['tienda']
+        for cat in DEPARTAMENTOS[tienda]:
+            botones.append(InlineKeyboardButton(cat, callback_data=cat))
+
+        teclado = construir_menu( botones, n_cols=2 )
+
+        reply_markup = InlineKeyboardMarkup(teclado)
+
+        message = context.bot.send_message(chat_id=update.effective_chat.id,
+                                 text='Seleccione una categoría para ver los departamentos disponibles.',
+                                 reply_markup=reply_markup)
+        # Se almacena el id del mensaje enviado para editarlo despues
+        USER[idchat]['cat_kb_message_id'] =  message.message_id
+    except Exception as ex:
+        print("Ay mama que es esto" + str(ex))
+
+def cat(update, context):
+    generar_teclado_categorias(update, context)
+
+dispatcher.add_handler(CommandHandler('cat', cat))
+
+
+# Generar el teclado con los departamentos
+def generar_teclado_departamentos(update, context):
+    botones = []
+    idchat = update.effective_chat.id
+    categoria = USER[idchat]['cat']
+    tienda = USER[idchat]['tienda']
+    for d_id, d_nombre in DEPARTAMENTOS[tienda][categoria].items():
+        botones.append(InlineKeyboardButton(d_nombre, callback_data=d_id))
+
+
+    teclado = construir_menu( botones, n_cols=2 )
+
+    reply_markup = InlineKeyboardMarkup(teclado)
+
+    # Reemplazar el teclado
+    context.bot.edit_message_text(chat_id=update.effective_chat.id, 
+                             text='Seleccione un departamento para ver los productos disponibles.',
+                             message_id=USER[update.effective_chat.id]['cat_kb_message_id'],                            
+                             reply_markup=reply_markup)
+
+def dep(update, context):
+    generar_teclado_categorias(update, context)
+
+dispatcher.add_handler(CommandHandler('dep', dep))
+
+
 
 # Generar masivamente los comandos de selección de provincia
 # TODO: Responder cuando se pasa como argumento el producto
@@ -244,10 +320,9 @@ def seleccionar_provincia(update, context):
     # Seleccionar el id de provincia sin "/"
     # Si no hay argumentos solo se cambia de provincia
     if not context.args:
-        debug_print(f'no hubo argumentos')
         prov = update.message.text[1:]
         texto_respuesta = mensaje_seleccion_provincia(prov)
-        USER[update.effective_chat.id] = {'prov': prov}
+        USER[update.effective_chat.id]['prov'] = prov
         context.bot.send_message(chat_id=update.effective_chat.id, text=texto_respuesta, parse_mode='HTML')
     else:
         debug_print(f'si hubo argumentos: {update.message.text}')
@@ -261,6 +336,113 @@ for prov in PROVINCIAS:
     dispatcher.add_handler(CommandHandler(prov, seleccionar_provincia))
 
 
+def obtener_todas_las_tiendas():
+    tiendas = []
+    for prov in PROVINCIAS:
+        for tienda in PROVINCIAS[prov][1]:
+            tiendas.append(tienda)
+    return tiendas
+
+def seleccionar_tienda(update, context):
+    tienda = TIENDAS_COMANDOS[update.message.text.split('/')[1]]
+    idchat = update.effective_chat.id
+    USER[idchat]['tienda'] = tienda
+    prov = USER[idchat]['prov']
+    texto_respuesta = f'Ha seleccionado la tienda: {PROVINCIAS[prov][1][tienda]}'
+    context.bot.send_message(chat_id=idchat, text=texto_respuesta, parse_mode='HTML')
+
+for tienda in obtener_todas_las_tiendas():
+    comando_tienda = f'seleccionar_{tienda}'.replace('-', '_')
+    TIENDAS_COMANDOS[comando_tienda] = tienda
+    dispatcher.add_handler(CommandHandler(comando_tienda, seleccionar_tienda))
+
+
+def actualizar_soup(url, mensaje, ahora, tienda):
+    respuesta = session.get(url)
+    data = respuesta.content.decode('utf8')
+    soup = BeautifulSoup(data, 'html.parser')
+    if mensaje not in RESULTADOS:
+        RESULTADOS[mensaje] = dict()
+    RESULTADOS[mensaje][tienda] = {'tiempo': ahora, 'soup': soup}
+    return soup
+
+
+def obtener_soup(mensaje, nombre, idchat, buscar_en_dpto=False):    
+    cadena_busqueda = ''
+    tiendas = {}
+    if buscar_en_dpto:
+        dep = USER[idchat]['dep']
+        cadena_busqueda = f'Products?depPid={dep}'
+        tiendas = { USER[idchat]['tienda']: 'xxx' }
+    else:
+        cadena_busqueda = f'Search.aspx?keywords=%22{mensaje}%22&depPid=0'
+        tiendas = PROVINCIAS[prov][1]
+    # Arreglo con una tupla para cada tienda con sus valores
+    result = []
+    # Seleccionar provincia que tiene el usuario en sus ajustes
+    prov = USER[idchat]['prov']
+
+    # Se hace el procesamiento para cada tienda en cada provincia
+    for tienda in tiendas:
+        url_base = f'https://www.tuenvio.cu/{tienda}'
+        url = f'{url_base}/{cadena_busqueda}'
+        respuesta, data, soup_str = '', '', ''
+        ahora = datetime.datetime.now()
+
+        # Si el resultado no se encuentra cacheado buscar y guardar
+        if mensaje not in RESULTADOS or tienda not in RESULTADOS[mensaje]:
+            debug_print(f'Buscando: "{mensaje}" para {nombre}')
+            soup_str = actualizar_soup(url, mensaje, ahora, tienda)
+        # Si el resultado está cacheado
+        elif tienda in RESULTADOS[mensaje]:
+            delta = ahora - RESULTADOS[mensaje][tienda]['tiempo']
+            # Si aún es válido se retorna lo que hay en cache
+            if delta.total_seconds() <= TTL:
+                debug_print(f'"{mensaje}" aún en cache, no se realiza la búsqueda.')
+                soup_str = RESULTADOS[mensaje][tienda]["soup"]
+            # Si no es válido se actualiza la cache
+            else:
+                debug_print(f'Actualizando : "{mensaje}" para {nombre}')
+                soup_str = actualizar_soup(url, mensaje, ahora, tienda)
+        result.append((soup_str, url_base, tienda))
+    return result
+
+
+# Definir una funcion para cada tipo de elemento a parsear
+def parsear_productos(soup, url_base):
+    productos = []
+    thumb_setting = soup.select('div.thumbSetting')             
+    for child in thumb_setting:
+        producto = child.select('div.thumbTitle a')[0].contents[0]
+        phref = child.select('div.thumbTitle a')[0]['href']
+        pid = phref.split('&')[0].split('=')[1]
+        plink = f'{url_base}/{phref}'
+        precio = child.select('div.thumbPrice span')[0].contents[0]
+        productos.append( (producto, precio, plink) )
+    return productos
+
+
+# Obtiene las categorias y departamentos de la tienda actual
+def parsear_menu_departamentos(idchat):
+    tienda = USER[idchat]['tienda']
+    respuesta = session.get(f'https://www.tuenvio.cu/{tienda}')    
+    data = respuesta.content.decode('utf8')
+    soup = BeautifulSoup(data, 'html.parser')
+
+    if not tienda in DEPARTAMENTOS:            
+        deps = {}
+        navbar = soup.select('.mainNav .navbar .nav > li:not(:first-child)')
+        for child in navbar:
+            cat = child.select('a')[0].contents[0]
+            deps[cat] = {}
+            for d in child.select('div > ul > li'):
+                d_id = d.select('a')[0]['href'].split('=')[1]
+                d_nombre = d.select('a')[0].contents[0]
+                deps[cat][d_id] = d_nombre
+        DEPARTAMENTOS[tienda] = deps
+
+
+
 # Buscar los productos
 def buscar_productos(update, context, palabras=False):
     if not palabras:
@@ -269,53 +451,52 @@ def buscar_productos(update, context, palabras=False):
     nombre = update.effective_user.username
 
     texto_respuesta = ''
-    if update.effective_chat.id in USER:
-        answer = False
-        try:
-            for soup, url_base, tienda in obtener_soup(palabras, nombre, idchat):
-                prov = USER[idchat]['prov']
-                nombre_tienda = PROVINCIAS[prov][1][tienda]
-                thumb_setting = soup.select('div.thumbSetting')
-                texto_respuesta += f'<b>Resultados en: 🏬 {nombre_tienda}</b>\n\n'
-                for child in thumb_setting:
-                    answer = True
-                    producto = child.select('div.thumbTitle a')[0].contents[0]
-                    phref = child.select('div.thumbTitle a')[0]['href']
-                    pid = phref.split('&')[0].split('=')[1]
-                    plink = f'{url_base}/{phref}'
-                    precio = child.select('div.thumbPrice span')[0].contents[0]
-                    texto_respuesta += f'📦{producto} --> {precio} <a href="{plink}">[ver producto]</a>\n'
-                texto_respuesta += "\n"
-            
-            if answer:
-                texto_respuesta = f'🎉🎉🎉¡¡¡Encontrado!!! 🎉🎉🎉\n\n{texto_respuesta}'
-            else:
-                texto_respuesta = 'No hay productos que contengan la palabra buscada ... 😭'
-        except Exception as inst:
-            texto_respuesta = f'Ocurrió la siguiente excepción: {str(inst)}'
-    else:
-        texto_respuesta = f'Debe seleccionar antes su provincia: hágalo mediante el menú de /ayuda.'
+    try:
+        for soup, url_base, tienda in obtener_soup(palabras, nombre, idchat):
+            prov = USER[idchat]['prov']
+            nombre_tienda = PROVINCIAS[prov][1][tienda]
+            texto_respuesta += f'<b>Resultados en: 🏬 {nombre_tienda}</b>\n\n'
+            productos = parsear_productos(soup, url_base)               
+            for producto, precio, plink in productos:                    
+                texto_respuesta += f'📦{producto} --> {precio} <a href="{plink}">[ver producto]</a>\n'
+            texto_respuesta += "\n"            
+        if productos:
+            texto_respuesta = f'🎉🎉🎉¡¡¡Encontrado!!! 🎉🎉🎉\n\n{texto_respuesta}'
+        else:
+            texto_respuesta = 'No hay productos que contengan la palabra buscada ... 😭'
+    except Exception as inst:
+        texto_respuesta = f'Ocurrió la siguiente excepción: {str(inst)}'
 
     context.bot.send_message(chat_id=idchat, text=texto_respuesta, parse_mode='HTML')
 
 
+# Buscar los productos en un departamento dado
+def buscar_productos_en_departamento(update, context):    
+    idchat = update.effective_chat.id
+    nombre = update.effective_user.username
+    dep = USER[idchat]['dep']
+    cat = USER[idchat]['cat']
 
-# Procesar mensajes de texto que no son comandos
-def procesar_palabra(update, context):
-    palabra = update.message.text    
+    texto_respuesta = ''
+    try:
+        for soup, url_base, tienda in obtener_soup(dep, nombre, idchat, True):            
+            prov = USER[idchat]['prov']
+            nombre_tienda = PROVINCIAS[prov][1][tienda]
+            print(tienda)
+            texto_respuesta += f'<b>Resultados en: 🏬 {nombre_tienda}</b>\n\n<b>Departamento:</b> {DEPARTAMENTOS[tienda][cat][dep]}\n\n'
+            productos = parsear_productos(soup, url_base)             
+            for producto, precio, plink in productos:                    
+                texto_respuesta += f'📦{producto} --> {precio} <a href="{plink}">[ver producto]</a>\n'
+            texto_respuesta += "\n"        
+        if productos:
+            texto_respuesta = f'🎉🎉🎉¡¡¡Se encontraron productos!!! 🎉🎉🎉\n\n{texto_respuesta}'
+        else:
+            texto_respuesta = 'No hay productos en el departamento seleccionado ... 😭'
+    except Exception as inst:
+        texto_respuesta = f'Ocurrió la siguiente excepción en dpto: {str(inst)}'
 
-    if palabra == BOTONES['PROVINCIAS']:
-        generar_teclado_provincias(update, context)
-    elif palabra == BOTONES['AYUDA']:
-        ayuda(update, context)
-    elif palabra == BOTONES['INICIO']:
-        iniciar_aplicacion(update, context)
-    else:
-        buscar_productos(update, context)
 
-
-dispatcher.add_handler(MessageHandler(Filters.text, procesar_palabra))
-
+    context.bot.send_message(chat_id=idchat, text=texto_respuesta, parse_mode='HTML')    
 
 # No procesar comandos incorrectos
 def desconocido(update, context):
@@ -325,5 +506,31 @@ def desconocido(update, context):
 
 
 dispatcher.add_handler(MessageHandler(Filters.command, desconocido))
+
+# Procesar mensajes de texto que no son comandos
+def procesar_palabra(update, context):
+    palabra = update.message.text
+    idchat = update.effective_chat.id
+
+    if palabra == BOTONES['PROVINCIAS']:        
+        generar_teclado_provincias(update, context)
+    elif palabra == BOTONES['AYUDA']:
+        ayuda(update, context)
+    elif palabra == BOTONES['INICIO']:
+        iniciar_aplicacion(update, context)
+    elif palabra == BOTONES['CATEGORIAS']:
+        if not 'tienda' in USER[idchat]:
+            context.bot.send_message(chat_id=idchat, 
+                                     text='Debe seleccionar una tienda antes de consultar las categorías.', 
+                                     parse_mode='HTML')
+        else:
+            parsear_menu_departamentos(idchat)
+            generar_teclado_categorias(update, context)
+    else:
+        buscar_productos(update, context)
+
+
+dispatcher.add_handler(MessageHandler(Filters.text, procesar_palabra))
+
 
 updater.start_polling(allowed_updates=[])
