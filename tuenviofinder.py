@@ -123,10 +123,8 @@ def mensaje_seleccion_provincia(prov):
     logo = PROVINCIAS[prov][2]
     texto_respuesta = f'Tiendas disponibles en: {logo} <b>{provincia}</b>:\n\n'
     for tid, tienda in obtener_tiendas(prov):
-        # Descomentar cuando utilicemos busquedas en las tiendas
         tid_no_dashs = tid.replace('-', '_')
         texto_respuesta += f'🏬 {tienda}. /seleccionar_{tid_no_dashs}\n'
-        #texto_respuesta += f'🛒 {tienda}.\n\n'
     return texto_respuesta
 
 
@@ -313,6 +311,27 @@ def dep(update, context):
 dispatcher.add_handler(CommandHandler('dep', dep))
 
 
+# Definicion del comando sub
+def sub(update, context):
+    idchat = update.effective_chat.id
+    args = context.args
+    if len(args) < 2:
+        if 'sub' in USER[idchat]:
+            del USER[idchat]['sub']
+            context.bot.send_message(chat_id=idchat,
+                                 text="Se ha eliminado correctamente su subscripción. Recuerde que siempre puede volver a subscribirse utilizando /sub provincia palabras")
+        else:
+            context.bot.send_message(chat_id=idchat,
+                                 text="Usted no tiene una subscripción activa. Para subscribirse utilice /sub provincia palabras")
+    else:
+        prov = args[0]
+        palabras = args[1:]
+        USER[idchat]['sub'] = { prov: palabras }
+        context.bot.send_message(chat_id=idchat,
+                             text=f'Ha actualizado correctamente sus opciones de subscripción.')
+
+dispatcher.add_handler(CommandHandler('sub', sub))
+
 
 # Generar masivamente los comandos de selección de provincia
 # TODO: Responder cuando se pasa como argumento el producto
@@ -369,6 +388,8 @@ def actualizar_soup(url, mensaje, ahora, tienda):
 
 def obtener_soup(mensaje, nombre, idchat, buscar_en_dpto=False):    
     cadena_busqueda = ''
+    # Seleccionar provincia que tiene el usuario en sus ajustes
+    prov = USER[idchat]['prov']
     tiendas = {}
     if buscar_en_dpto:
         dep = USER[idchat]['dep']
@@ -378,9 +399,7 @@ def obtener_soup(mensaje, nombre, idchat, buscar_en_dpto=False):
         cadena_busqueda = f'Search.aspx?keywords=%22{mensaje}%22&depPid=0'
         tiendas = PROVINCIAS[prov][1]
     # Arreglo con una tupla para cada tienda con sus valores
-    result = []
-    # Seleccionar provincia que tiene el usuario en sus ajustes
-    prov = USER[idchat]['prov']
+    result = []    
 
     # Se hace el procesamiento para cada tienda en cada provincia
     for tienda in tiendas:
@@ -443,7 +462,7 @@ def parsear_menu_departamentos(idchat):
 
 
 
-# Buscar los productos
+# Buscar los productos en la provincia seleccionada
 def buscar_productos(update, context, palabras=False):
     if not palabras:
         palabras = update.message.text
@@ -454,6 +473,7 @@ def buscar_productos(update, context, palabras=False):
     try:
         for soup, url_base, tienda in obtener_soup(palabras, nombre, idchat):
             prov = USER[idchat]['prov']
+            nombre_provincia = PROVINCIAS[prov][0]
             nombre_tienda = PROVINCIAS[prov][1][tienda]
             texto_respuesta += f'<b>Resultados en: 🏬 {nombre_tienda}</b>\n\n'
             productos = parsear_productos(soup, url_base)               
@@ -462,6 +482,14 @@ def buscar_productos(update, context, palabras=False):
             texto_respuesta += "\n"            
         if productos:
             texto_respuesta = f'🎉🎉🎉¡¡¡Encontrado!!! 🎉🎉🎉\n\n{texto_respuesta}'
+            # Enviar notificaciones a los subscritos
+            for uid in USER:
+                if 'sub' in USER[uid]:
+                    if prov in USER[uid]['sub']:
+                        if palabras in USER[uid]['sub'][prov]:
+                            context.bot.send_message(chat_id=uid,
+                                     text=f'Atención: Se encontró <b>{palabras}</b> en <b>{nombre_provincia}</b>.', 
+                                     parse_mode='HTML')
         else:
             texto_respuesta = 'No hay productos que contengan la palabra buscada ... 😭'
     except Exception as inst:
