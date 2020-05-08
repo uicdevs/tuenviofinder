@@ -338,16 +338,18 @@ dispatcher.add_handler(CommandHandler('sub', sub))
 def seleccionar_provincia(update, context):
     # Seleccionar el id de provincia sin "/"
     # Si no hay argumentos solo se cambia de provincia
+    idchat = update.effective_chat.id
     if not context.args:
-        prov = update.message.text[1:]
+        prov = update.message.text.split('/')[1]
         texto_respuesta = mensaje_seleccion_provincia(prov)
-        USER[update.effective_chat.id]['prov'] = prov
+        USER[idchat]['prov'] = prov
         context.bot.send_message(chat_id=update.effective_chat.id, text=texto_respuesta, parse_mode='HTML')
     else:
-        debug_print(f'si hubo argumentos: {update.message.text}')
         prov = update.message.text.split()[0].split('/')[1]
-        palabras = update.message.text.split()[1]
-        USER[update.effective_chat.id] = {'prov': prov}
+        palabras = ''
+        for pal in update.message.text.split()[1:]:
+            palabras += f'{pal} '
+        USER[idchat]['prov'] = prov
         buscar_productos(update, context, palabras)
 
 
