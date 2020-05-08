@@ -82,11 +82,12 @@ DEPARTAMENTOS = {
 
 TEXTO_AYUDA = f'<b>¡Bienvenido a la {BOTONES["AYUDA"]}!</b>\n\nEl bot cuenta con varias opciones para su manejo, siéntase libre de consultar esta \
 Ayuda siempre que lo considere necesario. \n\n<b>{BOTONES["INICIO"]}</b>: Reinicia el bot a sus opciones por defecto. \
-Sí, las búsquedas se realizarán en 🐴 <b>Granma</b> 😉.\n\n<b>{BOTONES["PROVINCIAS"]}</b>: Muestra un menú con las provincias donde se \
-realizarán las búsquedas.\n\n<b>{BOTONES["CATEGORIAS"]}</b>: Muestra las categorías disponibles en una tienda, que debe haber\
+Sí, las búsquedas se realizarán en 🐴 <b>Granma</b> 😉.\n\n<b>{BOTONES["PROVINCIAS"]}</b>: Muestra un menú con las provincias para seleccionar \
+aquella donde se realizarán las búsquedas.\n\n<b>{BOTONES["CATEGORIAS"]}</b>: Muestra las categorías disponibles en una tienda, que debe haber\
  haber seleccionado previamente.\n\n 💥 <b>¡Comandos avanzados! 💥</b>\n\nSi siente pasión por los comandos \
  le tenemos buenas noticias. Acceda a todos ellos directamente enviando la orden correspondiente seguida del caracter "/" \
- <b>Por ejemplo:</b> /lh cambia la provincia de búsqueda a 🦁 <b>La Habana</b>. Otros comandos disponibles son /prov, /cat, /dep, /start y /ayuda.'
+ <b>Por ejemplo:</b> /lh cambia la provincia de búsqueda a 🦁 <b>La Habana</b>. Otros comandos disponibles son /prov, /cat, /dep, /sub, /start y /ayuda.\n\n\
+ Los comandos de selección manual de provincia son:\n/pr, /ar, /my, /lh, /mt, /cf, /ss, /ca, /cm, /lt, /hl, /gr, /sc, /gt, /ij.'
 
 
 # Tiempo en segundos que una palabra de búsqueda permanece válida
@@ -193,8 +194,7 @@ dispatcher.add_handler(CommandHandler('ayuda', ayuda))
 def manejador_teclados_inline(update, context):
     try:
         query = update.callback_query
-        idchat = update.effective_chat.id
-        tienda = USER[idchat]['tienda']
+        idchat = update.effective_chat.id        
         cat = USER[idchat]['cat']
         if query.data in PROVINCIAS:
             prov = query.data
@@ -213,9 +213,15 @@ def manejador_teclados_inline(update, context):
             USER[idchat]['cat'] = cat
             generar_teclado_departamentos(update, context)
         # Cuando se selecciona un departamento
-        elif query.data in DEPARTAMENTOS[tienda][cat]:
-            USER[idchat]['dep'] = query.data
-            buscar_productos_en_departamento(update, context)
+        else:
+            if 'tienda' in USER[idchat]:
+                tienda = USER[idchat]['tienda']
+                if query.data in DEPARTAMENTOS[tienda][cat]:
+                    USER[idchat]['dep'] = query.data
+                    buscar_productos_en_departamento(update, context)
+            else:
+                context.bot.send_message(chat_id=idchat,
+                             text='Debe seleccionar una tienda antes de acceder a esta función.')
     except Exception as ex:
         print(str(ex))
 
@@ -260,26 +266,25 @@ dispatcher.add_handler(CommandHandler('dptos', dptos))
 
 # Generar el teclado con las categorías
 def generar_teclado_categorias(update, context):
-    try:
-        botones = []
-        idchat = update.effective_chat.id
-        tienda = USER[idchat]['tienda']
-        for cat in DEPARTAMENTOS[tienda]:
-            botones.append(InlineKeyboardButton(cat, callback_data=cat))
+    botones = []
+    idchat = update.effective_chat.id
+    tienda = USER[idchat]['tienda']
+    for cat in DEPARTAMENTOS[tienda]:
+        botones.append(InlineKeyboardButton(cat, callback_data=cat))
 
-        teclado = construir_menu( botones, n_cols=2 )
+    teclado = construir_menu( botones, n_cols=2 )
 
-        reply_markup = InlineKeyboardMarkup(teclado)
+    reply_markup = InlineKeyboardMarkup(teclado)
 
-        message = context.bot.send_message(chat_id=update.effective_chat.id,
-                                 text='Seleccione una categoría para ver los departamentos disponibles.',
-                                 reply_markup=reply_markup)
-        # Se almacena el id del mensaje enviado para editarlo despues
-        USER[idchat]['cat_kb_message_id'] =  message.message_id
-    except Exception as ex:
-        print("Ay mama que es esto" + str(ex))
+    message = context.bot.send_message(chat_id=idchat,
+                             text='Seleccione una categoría para ver los departamentos disponibles.',
+                             reply_markup=reply_markup)
+    # Se almacena el id del mensaje enviado para editarlo despues
+    USER[idchat]['cat_kb_message_id'] =  message.message_id
+
 
 def cat(update, context):
+    parsear_menu_departamentos(update.effective_chat.id)
     generar_teclado_categorias(update, context)
 
 dispatcher.add_handler(CommandHandler('cat', cat))
@@ -351,6 +356,8 @@ def seleccionar_provincia(update, context):
             palabras += f'{pal} '
         USER[idchat]['prov'] = prov
         buscar_productos(update, context, palabras)
+    if 'tienda' in USER[idchat]:
+        del USER[idchat]['tienda']
 
 
 for prov in PROVINCIAS:
