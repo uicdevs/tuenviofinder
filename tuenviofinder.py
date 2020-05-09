@@ -83,7 +83,7 @@ DEPARTAMENTOS = {
 TEXTO_AYUDA = f'<b>¡Bienvenido a la {BOTONES["AYUDA"]}!</b>\n\nEl bot cuenta con varias opciones para su manejo, siéntase libre de consultar esta \
 Ayuda siempre que lo considere necesario. \n\n<b>{BOTONES["INICIO"]}</b>: Reinicia el bot a sus opciones por defecto. \
 Sí, las búsquedas se realizarán en 🐴 <b>Granma</b> 😉.\n\n<b>{BOTONES["PROVINCIAS"]}</b>: Muestra un menú con las provincias para seleccionar \
-aquella donde se realizarán las búsquedas.\n\n<b>{BOTONES["CATEGORIAS"]}</b>: Muestra las categorías disponibles en una tienda, que debe haber\
+aquella donde se realizarán las búsquedas.\n\n<b>{BOTONES["CATEGORIAS"]}</b>: Muestra las categorías disponibles en una tienda, que debe\
  haber seleccionado previamente.\n\n 💥 <b>¡Comandos avanzados! 💥</b>\n\nSi siente pasión por los comandos \
  le tenemos buenas noticias. Acceda a todos ellos directamente enviando la orden correspondiente seguida del caracter "/" \
  <b>Por ejemplo:</b> /lh cambia la provincia de búsqueda a 🦁 <b>La Habana</b>. Otros comandos disponibles son /prov, /cat, /dep, /sub, /start y /ayuda.\n\n\
