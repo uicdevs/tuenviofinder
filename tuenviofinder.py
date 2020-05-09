@@ -207,21 +207,20 @@ def manejador_teclados_inline(update, context):
                                           chat_id=query.message.chat_id,
                                           message_id=query.message.message_id,
                                           parse_mode='HTML')
-        # Cuando se selecciona una categoría
-        elif query.data in DEPARTAMENTOS[tienda]:
-            cat = query.data
-            USER[idchat]['cat'] = cat
-            generar_teclado_departamentos(update, context)
-        # Cuando se selecciona un departamento
+        # Cuando se selecciona una categoría o departamento
+        elif 'tienda' in USER[idchat]:
+            tienda = USER[idchat]['tienda']
+            if query.data in DEPARTAMENTOS[tienda]:
+                cat = query.data
+                USER[idchat]['cat'] = cat
+                generar_teclado_departamentos(update, context)
+            # Cuando se selecciona un departamento
+            elif query.data in DEPARTAMENTOS[tienda][cat]:
+                USER[idchat]['dep'] = query.data
+                buscar_productos_en_departamento(update, context)                       
         else:
-            if 'tienda' in USER[idchat]:
-                tienda = USER[idchat]['tienda']
-                if query.data in DEPARTAMENTOS[tienda][cat]:
-                    USER[idchat]['dep'] = query.data
-                    buscar_productos_en_departamento(update, context)
-            else:
-                context.bot.send_message(chat_id=idchat,
-                             text='Debe seleccionar una tienda antes de acceder a esta función.')
+            context.bot.send_message(chat_id=idchat,
+                         text='Debe seleccionar una tienda antes de acceder a esta función.')
     except Exception as ex:
         print(str(ex))
 
