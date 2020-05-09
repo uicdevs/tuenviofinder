@@ -469,6 +469,14 @@ def parsear_menu_departamentos(idchat):
         DEPARTAMENTOS[tienda] = deps
 
 
+def notificar_subscritos(prov, palabras, nombre_provincia):
+    for uid in USER:
+        if 'sub' in USER[uid]:
+            if prov in USER[uid]['sub']:
+                if palabras in USER[uid]['sub'][prov]:
+                    context.bot.send_message(chat_id=uid,
+                             text=f'Atención: Se encontró <b>{palabras}</b> en <b>{nombre_provincia}</b>.', 
+                             parse_mode='HTML')
 
 # Buscar los productos en la provincia seleccionada
 def buscar_productos(update, context, palabras=False):
@@ -491,13 +499,7 @@ def buscar_productos(update, context, palabras=False):
         if productos:
             texto_respuesta = f'🎉🎉🎉¡¡¡Encontrado!!! 🎉🎉🎉\n\n{texto_respuesta}'
             # Enviar notificaciones a los subscritos
-            for uid in USER:
-                if 'sub' in USER[uid]:
-                    if prov in USER[uid]['sub']:
-                        if palabras in USER[uid]['sub'][prov]:
-                            context.bot.send_message(chat_id=uid,
-                                     text=f'Atención: Se encontró <b>{palabras}</b> en <b>{nombre_provincia}</b>.', 
-                                     parse_mode='HTML')
+            notificar_subscritos(prov, palabras, nombre_provincia)
         else:
             texto_respuesta = 'No hay productos que contengan la palabra buscada ... 😭'
     except Exception as inst:
@@ -530,7 +532,6 @@ def buscar_productos_en_departamento(update, context):
             texto_respuesta = 'No hay productos en el departamento seleccionado ... 😭'
     except Exception as inst:
         texto_respuesta = f'Ocurrió la siguiente excepción en dpto: {str(inst)}'
-
 
     context.bot.send_message(chat_id=idchat, text=texto_respuesta, parse_mode='HTML')    
 
