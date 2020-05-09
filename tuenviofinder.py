@@ -470,7 +470,7 @@ def parsear_menu_departamentos(idchat):
         DEPARTAMENTOS[tienda] = deps
 
 
-def notificar_subscritos(prov, palabras, nombre_provincia):
+def notificar_subscritos(update, context, prov, palabras, nombre_provincia):
     for uid in USER:
         if 'sub' in USER[uid]:
             if prov in USER[uid]['sub']:
@@ -486,7 +486,6 @@ def buscar_productos(update, context, palabras=False, dep=False):
     if dep:
         dep = USER[idchat]['dep']
         cat = USER[idchat]['cat']
-
 
     texto_respuesta = ''
     try:
@@ -511,7 +510,7 @@ def buscar_productos(update, context, palabras=False, dep=False):
         if productos:
             texto_respuesta = f'🎉🎉🎉¡¡¡Encontrado!!! 🎉🎉🎉\n\n{texto_respuesta}'
             # Enviar notificaciones a los subscritos
-            notificar_subscritos(prov, palabras, nombre_provincia)
+            notificar_subscritos(update, context, prov, palabras, nombre_provincia)
         else:
             texto_respuesta = 'No hay productos que contengan la palabra buscada ... 😭'
     except Exception as inst:
