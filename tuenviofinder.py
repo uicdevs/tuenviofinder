@@ -210,14 +210,15 @@ def manejador_teclados_inline(update, context):
         # Cuando se selecciona una categoría o departamento
         elif 'tienda' in USER[idchat]:
             tienda = USER[idchat]['tienda']
+            # Cuando se selecciona una categoría
             if query.data in DEPARTAMENTOS[tienda]:
                 cat = query.data
-                USER[idchat]['cat'] = cat
+                USER[idchat]['cat'] = cat                
                 generar_teclado_departamentos(update, context)
             # Cuando se selecciona un departamento
             elif query.data in DEPARTAMENTOS[tienda][cat]:
                 USER[idchat]['dep'] = query.data
-                buscar_productos_en_departamento(update, context)                       
+                buscar_productos(update, context, palabras=False, dep=True)                
         else:
             context.bot.send_message(chat_id=idchat,
                          text='Debe seleccionar una tienda antes de acceder a esta función.')
@@ -479,19 +480,30 @@ def notificar_subscritos(prov, palabras, nombre_provincia):
                              parse_mode='HTML')
 
 # Buscar los productos en la provincia seleccionada
-def buscar_productos(update, context, palabras=False):
-    if not palabras:
-        palabras = update.message.text
+def buscar_productos(update, context, palabras=False, dep=False):
     idchat = update.effective_chat.id
     nombre = update.effective_user.username
+    if dep:
+        dep = USER[idchat]['dep']
+        cat = USER[idchat]['cat']
+
 
     texto_respuesta = ''
     try:
-        for soup, url_base, tienda in obtener_soup(palabras, nombre, idchat):
+        if dep:
+            results = obtener_soup(dep, nombre, idchat, True)
+        else:
+            if not palabras:
+                palabras = update.message.text
+            results = obtener_soup(palabras, nombre, idchat)
+        for soup, url_base, tienda in results:
             prov = USER[idchat]['prov']
             nombre_provincia = PROVINCIAS[prov][0]
             nombre_tienda = PROVINCIAS[prov][1][tienda]
-            texto_respuesta += f'<b>Resultados en: 🏬 {nombre_tienda}</b>\n\n'
+            if dep:
+                texto_respuesta += f'<b>Resultados en: 🏬 {nombre_tienda}</b>\n\n<b>Departamento:</b> {DEPARTAMENTOS[tienda][cat][dep]}\n\n'
+            else:
+                texto_respuesta += f'<b>Resultados en: 🏬 {nombre_tienda}</b>\n\n'
             productos = parsear_productos(soup, url_base)               
             for producto, precio, plink in productos:                    
                 texto_respuesta += f'📦{producto} --> {precio} <a href="{plink}">[ver producto]</a>\n'
@@ -507,33 +519,6 @@ def buscar_productos(update, context, palabras=False):
 
     context.bot.send_message(chat_id=idchat, text=texto_respuesta, parse_mode='HTML')
 
-
-# Buscar los productos en un departamento dado
-def buscar_productos_en_departamento(update, context):    
-    idchat = update.effective_chat.id
-    nombre = update.effective_user.username
-    dep = USER[idchat]['dep']
-    cat = USER[idchat]['cat']
-
-    texto_respuesta = ''
-    try:
-        for soup, url_base, tienda in obtener_soup(dep, nombre, idchat, True):            
-            prov = USER[idchat]['prov']
-            nombre_tienda = PROVINCIAS[prov][1][tienda]
-            print(tienda)
-            texto_respuesta += f'<b>Resultados en: 🏬 {nombre_tienda}</b>\n\n<b>Departamento:</b> {DEPARTAMENTOS[tienda][cat][dep]}\n\n'
-            productos = parsear_productos(soup, url_base)             
-            for producto, precio, plink in productos:                    
-                texto_respuesta += f'📦{producto} --> {precio} <a href="{plink}">[ver producto]</a>\n'
-            texto_respuesta += "\n"        
-        if productos:
-            texto_respuesta = f'🎉🎉🎉¡¡¡Se encontraron productos!!! 🎉🎉🎉\n\n{texto_respuesta}'
-        else:
-            texto_respuesta = 'No hay productos en el departamento seleccionado ... 😭'
-    except Exception as inst:
-        texto_respuesta = f'Ocurrió la siguiente excepción en dpto: {str(inst)}'
-
-    context.bot.send_message(chat_id=idchat, text=texto_respuesta, parse_mode='HTML')    
 
 # No procesar comandos incorrectos
 def desconocido(update, context):
