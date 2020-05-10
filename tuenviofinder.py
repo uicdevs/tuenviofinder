@@ -472,6 +472,7 @@ def parsear_productos(soup, url_base):
 
 
 # Obtiene las categorias y departamentos de la tienda actual
+# TODO: Adicionar cache para el menu de categorias y departamentos
 def parsear_menu_departamentos(idchat):
     tienda = USER[idchat]['tienda']
     respuesta = session.get(f'https://www.tuenvio.cu/{tienda}')    
@@ -565,8 +566,7 @@ def procesar_palabra(update, context):
     elif palabra == BOTONES['CATEGORIAS']:
         if not 'tienda' in USER[idchat]:
             context.bot.send_message(chat_id=idchat, 
-                                     text='Debe seleccionar una tienda antes de consultar las categorías.', 
-                                     parse_mode='HTML')
+                                     text='Debe seleccionar una tienda antes de consultar las categorías.')
         else:
             parsear_menu_departamentos(idchat)
             generar_teclado_categorias(update, context)
