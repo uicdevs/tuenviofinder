@@ -35,7 +35,8 @@ BOTONES = {
     'INICIO': '🚀 Inicio',
     'AYUDA': '❓ Ayuda',
     'PROVINCIAS': '🌆 Provincias',
-    'CATEGORIAS': '🔰 Categorías'
+    'CATEGORIAS': '🔰 Categorías',
+    'INFO': '👤 Info'
 }
 
 PROVINCIAS = {
@@ -162,7 +163,7 @@ def iniciar_aplicacion(update, context):
     idchat = update.effective_chat.id
 
     button_list = [
-        [ BOTONES['INICIO'], BOTONES['AYUDA'] ],
+        [ BOTONES['INICIO'], BOTONES['AYUDA'], BOTONES['INFO'] ],
         [ BOTONES['PROVINCIAS'], BOTONES['CATEGORIAS'] ],
     ]
 
@@ -213,12 +214,13 @@ def manejador_teclados_inline(update, context):
             # Cuando se selecciona una categoría
             if query.data in DEPARTAMENTOS[tienda]:
                 cat = query.data
-                USER[idchat]['cat'] = cat                
+                USER[idchat]['cat'] = cat         
                 generar_teclado_departamentos(update, context)
             # Cuando se selecciona un departamento
             elif query.data in DEPARTAMENTOS[tienda][cat]:
                 USER[idchat]['dep'] = query.data
-                buscar_productos(update, context, palabras=False, dep=True)                
+                buscar_productos(update, context, palabras=False, dep=True)
+                context.bot.answerCallbackQuery(query.id)             
         else:
             context.bot.send_message(chat_id=idchat,
                          text='Debe seleccionar una tienda antes de acceder a esta función.')
@@ -385,6 +387,25 @@ for tienda in obtener_todas_las_tiendas():
     dispatcher.add_handler(CommandHandler(comando_tienda, seleccionar_tienda))
 
 
+def mostrar_informacion_usuario(update, context):
+    try:
+        idchat = update.effective_chat.id
+        prov = USER[idchat]['prov']
+        nombre_provincia = PROVINCIAS[prov][0]
+        tienda = USER[idchat]['tienda']
+        nombre_tienda = PROVINCIAS[prov][1][tienda]
+        cat = USER[idchat]['cat']
+        dep = USER[idchat]['dep']
+        #nombre_departamento = DEPARTAMENTOS[tienda][cat][dep]
+        print(DEPARTAMENTOS)
+        texto_respuesta = f'📌📌 Información Seleccionada 📌📌\n\n🌆 <b>Provincia:</b> {nombre_provincia}\n🛒 <b>Tienda:</b> {nombre_tienda}\n🔰 <b>Categoría:</b> {cat}\n📦 <b>Departamento:</b> {dep}'
+        context.bot.send_message(chat_id=idchat, 
+                                 text=texto_respuesta, 
+                                 parse_mode='HTML')
+    except Exception as e:
+        print(e)
+
+
 def actualizar_soup(url, mensaje, ahora, tienda):
     respuesta = session.get(url)
     data = respuesta.content.decode('utf8')
@@ -539,6 +560,8 @@ def procesar_palabra(update, context):
         ayuda(update, context)
     elif palabra == BOTONES['INICIO']:
         iniciar_aplicacion(update, context)
+    elif palabra == BOTONES['INFO']:
+        mostrar_informacion_usuario(update, context)
     elif palabra == BOTONES['CATEGORIAS']:
         if not 'tienda' in USER[idchat]:
             context.bot.send_message(chat_id=idchat, 
