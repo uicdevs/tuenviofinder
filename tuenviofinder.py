@@ -517,6 +517,7 @@ def buscar_productos(update, context, palabras=False, dep=False):
             if not palabras:
                 palabras = update.message.text
             results = obtener_soup(palabras, nombre, idchat)
+        p_list = []
         for soup, url_base, tienda in results:
             prov = USER[idchat]['prov']
             nombre_provincia = PROVINCIAS[prov][0]
@@ -525,11 +526,12 @@ def buscar_productos(update, context, palabras=False, dep=False):
                 texto_respuesta += f'<b>Resultados en: 🏬 {nombre_tienda}</b>\n\n<b>Departamento:</b> {DEPARTAMENTOS[tienda][cat][dep]}\n\n'
             else:
                 texto_respuesta += f'<b>Resultados en: 🏬 {nombre_tienda}</b>\n\n'
-            productos = parsear_productos(soup, url_base)               
+            productos = parsear_productos(soup, url_base)  
+            p_list.append(productos)             
             for producto, precio, plink in productos:                    
                 texto_respuesta += f'📦{producto} --> {precio} <a href="{plink}">[ver producto]</a>\n'
-            texto_respuesta += "\n"            
-        if productos:
+            texto_respuesta += "\n"
+        if p_list:
             texto_respuesta = f'🎉🎉🎉¡¡¡Encontrado!!! 🎉🎉🎉\n\n{texto_respuesta}'
             # Enviar notificaciones a los subscritos
             notificar_subscritos(update, context, prov, palabras, nombre_provincia)
