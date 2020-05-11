@@ -526,10 +526,11 @@ def buscar_productos(update, context, palabras=False, dep=False):
                 texto_respuesta += f'<b>Resultados en: 🏬 {nombre_tienda}</b>\n\n<b>Departamento:</b> {DEPARTAMENTOS[tienda][cat][dep]}\n\n'
             else:
                 texto_respuesta += f'<b>Resultados en: 🏬 {nombre_tienda}</b>\n\n'
-            productos = parsear_productos(soup, url_base)  
-            p_list.append(productos)             
-            for producto, precio, plink in productos:                    
-                texto_respuesta += f'📦{producto} --> {precio} <a href="{plink}">[ver producto]</a>\n'
+            productos = parsear_productos(soup, url_base)
+            if productos:
+                p_list.append(productos)             
+                for producto, precio, plink in productos:                    
+                    texto_respuesta += f'📦{producto} --> {precio} <a href="{plink}">[ver producto]</a>\n'
             texto_respuesta += "\n"
         if p_list:
             texto_respuesta = f'🎉🎉🎉¡¡¡Encontrado!!! 🎉🎉🎉\n\n{texto_respuesta}'
