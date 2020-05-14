@@ -203,6 +203,10 @@ def manejador_teclados_inline(update, context):
             USER[idchat]['prov'] = prov
             if 'tienda' in USER[idchat]:
                 del USER[idchat]['tienda']
+            if 'cat' in USER[idchat]:
+                del USER[idchat]['cat']
+            if 'dep' in USER[idchat]:
+                del USER[idchat]['dep']
             texto_respuesta = mensaje_seleccion_provincia(prov)
             context.bot.edit_message_text(text=texto_respuesta,
                                           chat_id=query.message.chat_id,
@@ -340,6 +344,30 @@ def sub(update, context):
 dispatcher.add_handler(CommandHandler('sub', sub))
 
 
+def registrar_subscripcion(idchat, pid, prov_id):
+    if 'sub' in USER[idchat]:
+        if prov_id in USER[idchat]['sub']:            
+            USER[idchat]['sub'][prov_id].append(pid)
+        else:
+            USER[idchat]['sub'][prov_id] = [pid]
+    else:
+        USER[idchat]['sub'] = { prov_id: [pid] }
+    print(USER[idchat])
+
+
+def sub_a(update, context):
+    try:
+        idchat = update.effective_chat.id
+        pid = update.message.text.split('_')[-1]
+        producto = PRODUCTOS[pid]
+        prov_id = USER[idchat]['prov']
+        provincia = PROVINCIAS[prov_id][0]
+        registrar_subscripcion(idchat, pid, prov_id)
+        context.bot.send_message(chat_id=idchat,
+                                 text=f'¡Subscripción registrada con éxito!\n\nProducto: {producto}\nProvincia: {provincia}')
+    except Exception as e:
+        print(e)
+
 # Generar masivamente los comandos de selección de provincia
 # TODO: Responder cuando se pasa como argumento el producto
 def seleccionar_provincia(update, context):
@@ -467,7 +495,7 @@ def parsear_productos(soup, url_base):
         pid = phref.split('&')[0].split('=')[1]
         plink = f'{url_base}/{phref}'
         precio = child.select('div.thumbPrice span')[0].contents[0]
-        productos.append( (producto, precio, plink) )
+        productos.append( (producto, precio, plink, pid) )
     return productos
 
 
@@ -529,8 +557,11 @@ def buscar_productos(update, context, palabras=False, dep=False):
             productos = parsear_productos(soup, url_base)
             if productos:
                 p_list.append(productos)             
-                for producto, precio, plink in productos:                    
-                    texto_respuesta += f'📦{producto} --> {precio} <a href="{plink}">[ver producto]</a>\n'
+                for producto, precio, plink, pid in productos:
+                    if pid not in PRODUCTOS:
+                        PRODUCTOS[pid] = producto
+                    dispatcher.add_handler( CommandHandler(f'subscribirse_a_{pid}', sub_a), 1)                
+                    texto_respuesta += f'📦{producto} --> {precio} <a href="{plink}">ver producto</a> o /subscribirse_a_{pid}\n'
             texto_respuesta += "\n"
         if p_list:
             texto_respuesta = f'🎉🎉🎉¡¡¡Encontrado!!! 🎉🎉🎉\n\n{texto_respuesta}'
@@ -546,9 +577,11 @@ def buscar_productos(update, context, palabras=False, dep=False):
 
 # No procesar comandos incorrectos
 def desconocido(update, context):
-    texto_respuesta = 'Lo sentimos, \"' + update.message.text + '\" no es un comando.'
-    context.bot.send_message(chat_id=update.effective_chat.id,
-                             text=texto_respuesta)
+    text = update.message.text
+    if not text.startswith('/subscribirse_a_'):
+        texto_respuesta = 'Lo sentimos, \"' + text + '\" no es un comando.'
+        context.bot.send_message(chat_id=update.effective_chat.id,
+                                 text=texto_respuesta)
 
 
 dispatcher.add_handler(MessageHandler(Filters.command, desconocido))
@@ -574,7 +607,12 @@ def procesar_palabra(update, context):
             parsear_menu_departamentos(idchat)
             generar_teclado_categorias(update, context)
     else:
-        buscar_productos(update, context)
+        if idchat in USER:
+            buscar_productos(update, context)
+        else:
+            context.bot.send_message(chat_id=idchat, 
+                                     text=f'Debe seleccionar una provincia antes de intentar realizar una búsqueda. \
+                                     Utilice el botón {BOTONES[INICIO]} del teclado o el comando /prov')
 
 
 dispatcher.add_handler(MessageHandler(Filters.text, procesar_palabra))
