@@ -682,42 +682,16 @@ updater.start_polling(allowed_updates=[])
 
 # Sección de trabajos cronometrados
 
+# Busca en la pagina de detalles del producto y retorna su informacion
+# Si es vacio entonces ya no esta disponible
 def parsear_detalles_producto(tid, pid):
     check_url = f'{URL_BASE_TUENVIO}/{tid}/Item?ProdPid={pid}'
     print(f'Buscando en: {check_url}')
     respuesta = session.get(check_url)    
     data = respuesta.content.decode('utf8')
     soup = BeautifulSoup(data, 'html.parser')
-
     return soup.select('.product-details')
 
-
-def esta_disponible_producto(prov, pid):
-    tiendas = []
-    for tid, tienda in obtener_tiendas(prov):
-        producto = parsear_detalles_producto(tid, pid)
-        if producto:
-            tiendas.append(tienda)
-    return tiendas
-
-
-def chequear_subscripciones(context):
-    for idchat in USER:
-        if 'sub' in USER[idchat]:
-            for prov, productos in USER[idchat]['sub'].items():
-                nombre_provincia = PROVINCIAS[prov][0]
-                print("Buscando en: ", nombre_provincia)
-                for pid, pt in productos:
-                    nombre_producto = PRODUCTOS[pid]['nombre']
-                    print("Buscando: ", nombre_producto)
-                    tiendas = esta_disponible_producto(prov, pid)
-                    print("Obtenidas: ", tiendas)
-                    if tiendas:
-                        tiendas_str = ', '.join(tiendas)
-                        context.bot.send_message(chat_id=idchat, 
-                                     text=f'¡Alerta: hay {nombre_producto} en {tiendas_str}!')
-
-# version 2
 
 def notificar_usuario(context, idchat, tid, pid, encontrado):
     nombre_tienda = obtener_nombre_tienda(tid)
@@ -733,7 +707,6 @@ def notificar_usuario(context, idchat, tid, pid, encontrado):
     SUBSCRIPCIONES[tid][pid][idchat] = int(encontrado)
 
 
-
 def chequear_subscripciones(context):
     print(SUBSCRIPCIONES)
     # Para cada una de las tiendas que tienen subscripciones
@@ -745,11 +718,11 @@ def chequear_subscripciones(context):
                 # Si existe al menos una subscripcion
                 if SUBSCRIPCIONES[tid][pid]:
                     nombre_producto = PRODUCTOS[pid]['nombre']
-                    resp = parsear_detalles_producto(tid, pid)
+                    disponible = parsear_detalles_producto(tid, pid)
                     # Para cada usuario que este subscrito a ese producto
                     for idchat, notificado in SUBSCRIPCIONES[tid][pid].items():
                         # Si el producto está disponible
-                        if resp:
+                        if disponible:
                             # Y el usuario no ha sido notificado
                             if not notificado:
                                 # Notificarle y actualizar el valor
