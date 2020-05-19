@@ -359,20 +359,6 @@ def registrar_subscripcion(idchat, pid, prov_id):
     return 1
 
 
-# def registrar_subscripcion(idchat, pid, prov_id):
-#     if 'sub' in USER[idchat]:
-#         if prov_id in USER[idchat]['sub']:
-#             if pid in USER[idchat]['sub'][prov_id]:
-#                 return 0
-#             else:    
-#                 USER[idchat]['sub'][prov_id].append( [ pid, [] ] )
-#         else:
-#             USER[idchat]['sub'][prov_id] = [ [ pid, [] ] ]
-#     else:
-#         USER[idchat]['sub'] = { prov_id: [ [ pid, [] ] ] }
-#     print(USER[idchat]['sub'])
-#     return 1    
-
 def sub_a(update, context):
     try:
         idchat = update.effective_chat.id
@@ -389,6 +375,21 @@ def sub_a(update, context):
                                  text=f'¡Ya existe una subscripción para {producto} en {provincia}!')
     except Exception as e:
         print(e)
+
+
+def eliminar_prod(update, context):
+    try:
+        idchat = update.effective_chat.id        
+        pid = update.message.text.split('_')[-1]
+        producto = PRODUCTOS[pid]['nombre']
+        for tienda in SUBSCRIPCIONES:
+            if pid in SUBSCRIPCIONES[tienda] and idchat in SUBSCRIPCIONES[tienda][pid]:
+                del SUBSCRIPCIONES[tienda][pid][idchat]
+                context.bot.send_message(chat_id=idchat,
+                                         text=f'Ha eliminado su subscripción al producto <b>{producto}</b>.',
+                                         parse_mode='HTML')
+    except Exception as e:
+        print('Ocurrió: ', e)        
 
 # Generar masivamente los comandos de selección de provincia
 # TODO: Responder cuando se pasa como argumento el producto
@@ -463,7 +464,7 @@ def subscripciones_activas(idchat):
         for pid in SUBSCRIPCIONES[tid]:
             if idchat in SUBSCRIPCIONES[tid][pid]:
                 prod = PRODUCTOS[pid]['nombre']
-                subs.append( f'📦 <b>{prod}</b> en <b>{tienda}</b>' )
+                subs.append( f'📦 <b>{prod}</b> en <b>{tienda}</b> /eliminar_{pid}' )
     if subs:
         return '\n\n'.join(subs)
     return False
@@ -611,7 +612,8 @@ def buscar_productos(update, context, palabras=False, dep=False):
                 for producto, precio, plink, pid in productos:
                     if pid not in PRODUCTOS:
                         PRODUCTOS[pid] = { 'nombre': producto, 'precio': precio, 'link': plink }
-                    dispatcher.add_handler( CommandHandler(f'subscribirse_a_{pid}', sub_a), 1)                
+                    dispatcher.add_handler( CommandHandler(f'subscribirse_a_{pid}', sub_a), 1)             
+                    dispatcher.add_handler( CommandHandler(f'eliminar_{pid}', eliminar_prod), 1)             
                     texto_respuesta += f'📦{producto} --> {precio} <a href="{plink}">ver producto</a> o /subscribirse_a_{pid}\n'
             texto_respuesta += "\n"
         if p_list:
@@ -632,7 +634,7 @@ def buscar_productos(update, context, palabras=False, dep=False):
 # No procesar comandos incorrectos
 def desconocido(update, context):
     text = update.message.text
-    if not text.startswith('/subscribirse_a_'):
+    if not text.startswith('/subscribirse_a_') and not text.startswith('/eliminar'):
         texto_respuesta = 'Lo sentimos, \"' + text + '\" no es un comando.'
         context.bot.send_message(chat_id=update.effective_chat.id,
                                  text=texto_respuesta)
@@ -689,7 +691,6 @@ def parsear_detalles_producto(tid, pid):
 
     return soup.select('.product-details')
 
-    
 
 def esta_disponible_producto(prov, pid):
     tiendas = []
@@ -698,6 +699,7 @@ def esta_disponible_producto(prov, pid):
         if producto:
             tiendas.append(tienda)
     return tiendas
+
 
 def chequear_subscripciones(context):
     for idchat in USER:
@@ -740,21 +742,23 @@ def chequear_subscripciones(context):
             nombre_tienda = obtener_nombre_tienda(tid)
             # Para cada producto que tenga subscripciones
             for pid in SUBSCRIPCIONES[tid]:
-                nombre_producto = PRODUCTOS[pid]['nombre']
-                resp = parsear_detalles_producto(tid, pid)
-                # Para cada usuario que este subscrito a ese producto
-                for idchat, notificado in SUBSCRIPCIONES[tid][pid].items():
-                    # Si el producto está disponible
-                    if resp:
-                        # Y el usuario no ha sido notificado
-                        if not notificado:
-                            # Notificarle y actualizar el valor
-                            notificar_usuario(context, idchat, tid, pid, True)
-                    # Si el producto no esta disponible...
-                    else:
-                        # Y el usuario fue notificado anteriormente actualizar el valor
-                        if notificado:
-                            notificar_usuario(context, idchat, tid, pid, False)
+                # Si existe al menos una subscripcion
+                if SUBSCRIPCIONES[tid][pid]:
+                    nombre_producto = PRODUCTOS[pid]['nombre']
+                    resp = parsear_detalles_producto(tid, pid)
+                    # Para cada usuario que este subscrito a ese producto
+                    for idchat, notificado in SUBSCRIPCIONES[tid][pid].items():
+                        # Si el producto está disponible
+                        if resp:
+                            # Y el usuario no ha sido notificado
+                            if not notificado:
+                                # Notificarle y actualizar el valor
+                                notificar_usuario(context, idchat, tid, pid, True)
+                        # Si el producto no esta disponible...
+                        else:
+                            # Y el usuario fue notificado anteriormente actualizar el valor
+                            if notificado:
+                                notificar_usuario(context, idchat, tid, pid, False)
     except RuntimeError:
         pass
 
