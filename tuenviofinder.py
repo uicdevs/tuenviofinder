@@ -181,8 +181,11 @@ dispatcher.add_handler(CommandHandler('ayuda', ayuda))
 def manejador_teclados_inline(update, context):
     try:
         query = update.callback_query
-        idchat = update.effective_chat.id        
-        if query.data in PROVINCIAS:
+        idchat = update.effective_chat.id
+        if query.data == 'cat_atras':
+            generar_teclado_categorias(update, context)
+            context.bot.answerCallbackQuery(query.id)
+        elif query.data in PROVINCIAS:
             prov = query.data
             provincia = PROVINCIAS[prov][0]
             USER[idchat]['prov'] = prov
@@ -262,17 +265,27 @@ def generar_teclado_categorias(update, context):
     botones = []
     idchat = update.effective_chat.id
     tienda = USER[idchat]['tienda']
+    nombre_tienda = obtener_nombre_tienda(tienda)
     for cat in DEPARTAMENTOS[tienda]:
         botones.append(InlineKeyboardButton(cat, callback_data=cat))
 
     if botones:
         teclado = construir_menu( botones, n_cols=2 )
         reply_markup = InlineKeyboardMarkup(teclado)
-        message = context.bot.send_message(chat_id=idchat,
-                                 text='Seleccione una categoría para ver los departamentos disponibles.',
-                                 reply_markup=reply_markup)
-        # Se almacena el id del mensaje enviado para editarlo despues
-        USER[idchat]['cat_kb_message_id'] =  message.message_id
+        texto_respuesta = f'Categorías disponibles en 🏬 <b>{nombre_tienda}</b>'
+        if 'cat_kb_message_id' in USER[idchat]:
+            context.bot.edit_message_text(chat_id=update.effective_chat.id, 
+                                 text=texto_respuesta,
+                                 message_id=USER[idchat]['cat_kb_message_id'],                            
+                                 reply_markup=reply_markup,
+                                 parse_mode='HTML')
+        else:
+            message = context.bot.send_message(chat_id=idchat,
+                                     text=texto_respuesta,
+                                     reply_markup=reply_markup,
+                                     parse_mode='HTML')
+            # Se almacena el id del mensaje enviado para editarlo despues
+            USER[idchat]['cat_kb_message_id'] =  message.message_id
     else:
         message = context.bot.send_message(chat_id=idchat,
                                  text='⛔️ No hay categorías disponibles en la tienda seleccionada. <b>¿Quizás está offline?</b>',
@@ -296,8 +309,8 @@ def generar_teclado_departamentos(update, context):
     for d_id, d_nombre in DEPARTAMENTOS[tienda][categoria].items():
         botones.append(InlineKeyboardButton(d_nombre, callback_data=d_id))
 
-
-    teclado = construir_menu( botones, n_cols=2 )
+    teclado = construir_menu( botones, n_cols=2)
+    teclado.append( [InlineKeyboardButton('👈 Atrás', callback_data='cat_atras')] )
 
     reply_markup = InlineKeyboardMarkup(teclado)
 
@@ -744,4 +757,4 @@ def chequear_subscripciones(context):
 
 
 job_queue = updater.job_queue
-job_queue.run_repeating(chequear_subscripciones, 60)
+job_queue.run_repeating(chequear_subscripciones, 300)
