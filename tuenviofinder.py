@@ -31,7 +31,7 @@ URL = f'https://api.telegram.org/bot{TOKEN}/'
 
 URL_BASE_TUENVIO = 'https://www.tuenvio.cu'
 
-RESULTADOS, PRODUCTOS, USER, TIENDAS_COMANDOS, SUBSCRIPCIONES, DEPARTAMENTOS = {}, {}, {}, {}, {}, {}
+RESULTADOS, PRODUCTOS, USER, TIENDAS_COMANDOS, SUBSCRIPCIONES, DEPARTAMENTOS, CACHE = {}, {}, {}, {}, {}, {}, {}
 
 BOTONES = {
     'INICIO': '🚀 Inicio',
@@ -554,14 +554,15 @@ def parsear_productos(soup, url_base):
 
 
 # Obtiene las categorias y departamentos de la tienda actual
-# TODO: Adicionar cache para el menu de categorias y departamentos
 def parsear_menu_departamentos(idchat):
     tienda = USER[idchat]['tienda']
     respuesta = session.get(f'{URL_BASE_TUENVIO}/{tienda}')    
     data = respuesta.content.decode('utf8')
     soup = BeautifulSoup(data, 'html.parser')
+    ahora = datetime.datetime.now()
 
-    if not tienda in DEPARTAMENTOS:            
+    # Si no se le ha generado menu a la tienda o el que existe aun es valido
+    if not tienda in DEPARTAMENTOS or (ahora - CACHE[tienda]['menu_cat']).total_seconds() > TTL:     
         deps = {}
         navbar = soup.select('.mainNav .navbar .nav > li:not(:first-child)')
         for child in navbar:
@@ -572,6 +573,11 @@ def parsear_menu_departamentos(idchat):
                 d_nombre = d.select('a')[0].contents[0]
                 deps[cat][d_id] = d_nombre
         DEPARTAMENTOS[tienda] = deps
+        # TODO: Inicializar esta cache al inicio
+        if not tienda in CACHE:
+            CACHE[tienda] = {}
+        CACHE[tienda]['menu_cat'] = datetime.datetime.now()
+
 
 
 def notificar_subscritos(update, context, prov, palabras, nombre_provincia):
