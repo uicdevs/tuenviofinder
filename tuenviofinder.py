@@ -686,7 +686,6 @@ updater.start_polling(allowed_updates=[])
 # Si es vacio entonces ya no esta disponible
 def parsear_detalles_producto(tid, pid):
     check_url = f'{URL_BASE_TUENVIO}/{tid}/Item?ProdPid={pid}'
-    print(f'Buscando en: {check_url}')
     respuesta = session.get(check_url)    
     data = respuesta.content.decode('utf8')
     soup = BeautifulSoup(data, 'html.parser')
@@ -722,7 +721,7 @@ def chequear_subscripciones(context):
                     # Para cada usuario que este subscrito a ese producto
                     for idchat, notificado in SUBSCRIPCIONES[tid][pid].items():
                         # Si el producto está disponible
-                        if disponible:
+                        if disponible:                           
                             # Y el usuario no ha sido notificado
                             if not notificado:
                                 # Notificarle y actualizar el valor
@@ -737,4 +736,4 @@ def chequear_subscripciones(context):
 
 
 job_queue = updater.job_queue
-job_queue.run_repeating(chequear_subscripciones, 60)
+job_queue.run_repeating(chequear_subscripciones, 20)
