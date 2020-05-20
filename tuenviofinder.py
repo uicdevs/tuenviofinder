@@ -106,18 +106,18 @@ def obtener_nombre_tienda(tid):
             return PROVINCIAS[prov][1][tid]
     return tid
 
+
 def mensaje_seleccion_provincia(prov):
     provincia = PROVINCIAS[prov][0]
     logo = PROVINCIAS[prov][2]
     texto_respuesta = f'Tiendas disponibles en: {logo} <b>{provincia}</b>:\n\n'
     for tid, tienda in obtener_tiendas(prov):
         tid_no_dashs = tid.replace('-', '_')
-        texto_respuesta += f'🏬 {tienda}. /seleccionar_{tid_no_dashs}\n'
+        texto_respuesta += f'🏬 {tienda}. /ver_categorias_{tid_no_dashs}\n'
     return texto_respuesta
 
 
 # Inicializar todo
-
 updater = Updater(TOKEN, use_context=True)
 dispatcher = updater.dispatcher
 
@@ -424,18 +424,20 @@ def obtener_todas_las_tiendas():
             tiendas.append(tienda)
     return tiendas
 
-def seleccionar_tienda(update, context):
+def seleccionar_categorias_tienda(update, context):
     tienda = TIENDAS_COMANDOS[update.message.text.split('/')[1]]
     idchat = update.effective_chat.id
     USER[idchat]['tienda'] = tienda
     prov = USER[idchat]['prov']
-    texto_respuesta = f'Ha seleccionado la tienda: {PROVINCIAS[prov][1][tienda]}'
+    texto_respuesta = f'Espere mientras se obtienen las categorías para: 🏬 <b>{PROVINCIAS[prov][1][tienda]}</b>'    
     context.bot.send_message(chat_id=idchat, text=texto_respuesta, parse_mode='HTML')
+    parsear_menu_departamentos(idchat)
+    generar_teclado_categorias(update, context)
 
 for tienda in obtener_todas_las_tiendas():
-    comando_tienda = f'seleccionar_{tienda}'.replace('-', '_')
+    comando_tienda = f'ver_categorias_{tienda}'.replace('-', '_')
     TIENDAS_COMANDOS[comando_tienda] = tienda
-    dispatcher.add_handler(CommandHandler(comando_tienda, seleccionar_tienda))
+    dispatcher.add_handler(CommandHandler(comando_tienda, seleccionar_categorias_tienda))
 
 
 def mostrar_informacion_usuario(update, context):
@@ -736,4 +738,4 @@ def chequear_subscripciones(context):
 
 
 job_queue = updater.job_queue
-job_queue.run_repeating(chequear_subscripciones, 20)
+job_queue.run_repeating(chequear_subscripciones, 60)
