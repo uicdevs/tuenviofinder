@@ -32,6 +32,8 @@ URL = f'https://api.telegram.org/bot{TOKEN}/'
 
 URL_BASE_TUENVIO = 'https://www.tuenvio.cu'
 
+HEADERS = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Ubuntu Chromium/81.0.4044.122 Chrome/81.0.4044.122 Safari/537.36' }
+
 RESULTADOS, PRODUCTOS, USER, TIENDAS_COMANDOS, SUBSCRIPCIONES, DEPARTAMENTOS, CACHE, CACHE2 = {}, {}, {}, {}, {}, {}, {}, {}
 
 BOTONES = {
@@ -511,8 +513,6 @@ def mostrar_informacion_usuario(update, context):
         nombre_tienda = PROVINCIAS[prov][1][tienda]
         cat = USER[idchat]['cat']
         dep = USER[idchat]['dep']
-        #nombre_departamento = DEPARTAMENTOS[tienda][cat][dep]
-        print(DEPARTAMENTOS)
         texto_respuesta = f'📌📌 Información Seleccionada 📌📌\n\n🌆 <b>Provincia:</b> {nombre_provincia}\n🛒 <b>Tienda:</b> {nombre_tienda}\n🔰 <b>Categoría:</b> {cat}\n📦 <b>Departamento:</b> {dep}'
         context.bot.send_message(chat_id=idchat, 
                                  text=texto_respuesta, 
@@ -581,7 +581,7 @@ def mostrar_subscripciones_clave(update, context, clave=False):
 
 def actualizar_soup(url, mensaje, ahora, tienda):
     try:
-        respuesta = session.get(url)
+        respuesta = session.get(url, headers=HEADERS)
         data = respuesta.content.decode('utf8')
         soup = BeautifulSoup(data, 'html.parser')
         if mensaje not in RESULTADOS:
@@ -720,13 +720,13 @@ def parsear_productos(soup, url_base):
 # Obtiene las categorias y departamentos de la tienda actual
 def parsear_menu_departamentos(idchat):
     tienda = USER[idchat]['tienda']
-    respuesta = session.get(f'{URL_BASE_TUENVIO}/{tienda}')    
+    respuesta = session.get(f'{URL_BASE_TUENVIO}/{tienda}', headers=HEADERS)
     data = respuesta.content.decode('utf8')
     soup = BeautifulSoup(data, 'html.parser')
     ahora = datetime.datetime.now()
 
     # Si no se le ha generado menu a la tienda o el que existe aun es valido
-    if not tienda in DEPARTAMENTOS or (ahora - CACHE2[tienda]['menu_cat']).total_seconds() > TTL:     
+    if not tienda in DEPARTAMENTOS or (ahora - CACHE2[tienda]['menu_cat']).total_seconds() > TTL:  
         deps = {}
         navbar = soup.select('.mainNav .navbar .nav > li:not(:first-child)')
         for child in navbar:
@@ -856,7 +856,7 @@ updater.start_polling(allowed_updates=[])
 # Si es vacio entonces ya no esta disponible
 def parsear_detalles_producto(tid, pid):
     check_url = f'{URL_BASE_TUENVIO}/{tid}/Item?ProdPid={pid}'
-    respuesta = session.get(check_url)    
+    respuesta = session.get(check_url, headers=HEADERS)    
     data = respuesta.content.decode('utf8')
     soup = BeautifulSoup(data, 'html.parser')
     return soup.select('.product-details')
@@ -910,7 +910,6 @@ def notificar_subscritos_palabras_clave(context):
                     encontradas = [] # lista de palabras encontradas a eliminar
                     for palabra in pal:
                         # Se utiliza como nombre de usuario para logs el propio idchat (2do arg)
-                        print('chequeado: ', idchat, prov, palabra, tienda)
                         soup = obtener_soup(palabra, idchat, idchat, tienda=tid)[0][0]
                         if len(soup.select('.hProductItems > li')):
                             context.bot.send_message(chat_id=idchat,
