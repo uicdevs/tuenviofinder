@@ -4,7 +4,8 @@ import logging
 import os
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-import sqlite3
+import sqlite3, pickle
+from collections import Counter
 
 import requests
 from bs4 import BeautifulSoup
@@ -31,7 +32,7 @@ URL = f'https://api.telegram.org/bot{TOKEN}/'
 
 URL_BASE_TUENVIO = 'https://www.tuenvio.cu'
 
-RESULTADOS, PRODUCTOS, USER, TIENDAS_COMANDOS, SUBSCRIPCIONES, DEPARTAMENTOS, CACHE = {}, {}, {}, {}, {}, {}, {}
+RESULTADOS, PRODUCTOS, USER, TIENDAS_COMANDOS, SUBSCRIPCIONES, DEPARTAMENTOS, CACHE, CACHE2 = {}, {}, {}, {}, {}, {}, {}, {}
 
 BOTONES = {
     'INICIO': '🚀 Inicio',
@@ -72,7 +73,7 @@ aquella donde se realizarán las búsquedas.\n\n<b>{BOTONES["CATEGORIAS"]}</b>: 
 
 
 # Tiempo en segundos que una palabra de búsqueda permanece válida
-TTL = 600
+TTL = 900
 
 session = requests.Session()
 
@@ -107,13 +108,23 @@ def obtener_nombre_tienda(tid):
     return tid
 
 
+def obtener_departamentos():
+    deps = []
+    for tienda in DEPARTAMENTOS:
+        for cat in DEPARTAMENTOS[tienda]:
+            for dep in DEPARTAMENTOS[tienda][cat]:
+                if not dep in deps:
+                    deps.append(dep)
+    return deps
+
+
 def mensaje_seleccion_provincia(prov):
     provincia = PROVINCIAS[prov][0]
     logo = PROVINCIAS[prov][2]
-    texto_respuesta = f'Tiendas disponibles en: {logo} <b>{provincia}</b>:\n\n'
+    texto_respuesta = f'Ha seleccionado: {logo} <b>{provincia}</b>. Tiendas disponibles:\n\n'
     for tid, tienda in obtener_tiendas(prov):
         tid_no_dashs = tid.replace('-', '_')
-        texto_respuesta += f'🏬 {tienda}. /ver_categorias_{tid_no_dashs}\n'
+        texto_respuesta += f'🏬 <b>{tienda}</b>. /ver_categorias_{tid_no_dashs}\n\n'
     return texto_respuesta
 
 
@@ -178,17 +189,20 @@ dispatcher.add_handler(CommandHandler('ayuda', ayuda))
 
 
 # Manejador de los teclados inlines disponibles
-def manejador_teclados_inline(update, context):
-    try:
-        query = update.callback_query
-        idchat = update.effective_chat.id
-        if query.data == 'cat_atras':
-            generar_teclado_categorias(update, context)
-            context.bot.answerCallbackQuery(query.id)
-        elif query.data in PROVINCIAS:
+def manejador_teclados_inline(update, context):    
+    query = update.callback_query
+    idchat = update.effective_chat.id
+    if query.data == 'cat_atras':
+        generar_teclado_categorias(update, context)
+        context.bot.answerCallbackQuery(query.id)
+    elif query.data in PROVINCIAS:
+        try:
             prov = query.data
             provincia = PROVINCIAS[prov][0]
-            USER[idchat]['prov'] = prov
+            if idchat in USER:
+                USER[idchat]['prov'] = prov
+            else:
+                USER[idchat] = { 'prov': prov }
             if 'tienda' in USER[idchat]:
                 del USER[idchat]['tienda']
             if 'cat' in USER[idchat]:
@@ -200,26 +214,27 @@ def manejador_teclados_inline(update, context):
                                           chat_id=query.message.chat_id,
                                           message_id=query.message.message_id,
                                           parse_mode='HTML')
-        # Cuando se selecciona una categoría o departamento
-        elif 'tienda' in USER[idchat]:
-            tienda = USER[idchat]['tienda']
-            # Cuando se selecciona una categoría
-            if query.data in DEPARTAMENTOS[tienda]:
-                cat = query.data
-                USER[idchat]['cat'] = cat         
-                generar_teclado_departamentos(update, context)
-            # Cuando se selecciona un departamento
-            else:
-                cat = USER[idchat]['cat']
-                if query.data in DEPARTAMENTOS[tienda][cat]:
-                    USER[idchat]['dep'] = query.data
-                    buscar_productos(update, context, palabras=False, dep=True)
-                    context.bot.answerCallbackQuery(query.id)             
+        except Exception as ex:
+            print('Ocurrió la excepción:', ex)
+    # Cuando se selecciona una categoría o departamento
+    elif 'tienda' in USER[idchat]:
+        tienda = USER[idchat]['tienda']
+        # Cuando se selecciona una categoría
+        if query.data in DEPARTAMENTOS[tienda]:
+            cat = query.data
+            USER[idchat]['cat'] = cat         
+            generar_teclado_departamentos(update, context)
+        # Cuando se selecciona un departamento
         else:
-            context.bot.send_message(chat_id=idchat,
-                         text='Debe seleccionar una tienda antes de acceder a esta función.')
-    except Exception as ex:
-        print(f'Ocurrió la excepción: {str(ex)}')
+            cat = USER[idchat]['cat']
+            if query.data in DEPARTAMENTOS[tienda][cat]:
+                USER[idchat]['dep'] = query.data
+                buscar_productos(update, context, palabras=False, dep=True)
+                context.bot.answerCallbackQuery(query.id)             
+    else:
+        context.bot.send_message(chat_id=idchat,
+                     text='Debe seleccionar una tienda antes de acceder a esta función.')
+    
 
 
 dispatcher.add_handler(CallbackQueryHandler(manejador_teclados_inline))
@@ -288,7 +303,7 @@ def generar_teclado_categorias(update, context):
             USER[idchat]['cat_kb_message_id'] =  message.message_id
     else:
         message = context.bot.send_message(chat_id=idchat,
-                                 text='⛔️ No hay categorías disponibles en la tienda seleccionada. <b>¿Quizás está offline?</b>',
+                                 text=f'⛔️ No se encontraron categorías en <b>{nombre_tienda}</b>. <b>¿Quizás está offline?</b>',
                                  parse_mode='HTML')
 
 
@@ -326,24 +341,58 @@ def dep(update, context):
 dispatcher.add_handler(CommandHandler('dep', dep))
 
 
+def tiene_subscripciones_activas(idchat):
+    return idchat in USER and 'sub' in USER[idchat]
+
+
 # Definicion del comando sub
 def sub(update, context):
     idchat = update.effective_chat.id
     args = context.args
-    if len(args) < 2:
-        if 'sub' in USER[idchat]:
-            del USER[idchat]['sub']
-            context.bot.send_message(chat_id=idchat,
-                                 text="Se ha eliminado correctamente su subscripción. Recuerde que siempre puede volver a subscribirse utilizando /sub provincia palabras")
+    texto_no_subscripciones = 'Usted no tiene ninguna subscripción activa. Para subscribirse utilice /sub provincia palabras'
+    # Si se envia el comando con 1 argumento, si se trata de una provincia se muestran las
+    # subscripciones por esta via a esa provincia, si no se muestran las subscripciones a
+    # la palabra seleccionada. Si se llama sin argumentos se muestran todas.
+    if len(args) == 0:
+        if tiene_subscripciones_activas(idchat):
+            mostrar_subscripciones_clave(update, context)
         else:
             context.bot.send_message(chat_id=idchat,
-                                 text="Usted no tiene una subscripción activa. Para subscribirse utilice /sub provincia palabras")
+                                     text=texto_no_subscripciones)
+    elif len(args) == 1:
+        prov = args[0]
+        if prov == 'elim':
+            # Lo que desea es eliminar
+            if tiene_subscripciones_activas(idchat):
+                del USER[idchat]['sub']
+                context.bot.send_message(chat_id=idchat,
+                                         text="Se han eliminado correctamente sus opciones de subscripción, \
+                                         si las tenía. Recuerde que siempre puede volver a subscribirse utilizando /sub provincia palabras.")
+            else:
+                context.bot.send_message(chat_id=idchat,
+                                         text=texto_no_subscripciones)
+        else:
+            mostrar_subscripciones_clave(update, context, clave=prov) 
     else:
         prov = args[0]
-        palabras = args[1:]
-        USER[idchat]['sub'] = { prov: palabras }
-        context.bot.send_message(chat_id=idchat,
-                             text=f'Ha actualizado correctamente sus opciones de subscripción.')
+        palabras = ' '.join(args[1:])
+        if prov in PROVINCIAS:            
+            if tiene_subscripciones_activas(idchat):
+                # Si ya tiene subscripciones actualizar las palabras en la provincia seleccionada
+                if prov in USER[idchat]['sub']:
+                    USER[idchat]['sub'][prov].append(palabras)
+                else:
+                    USER[idchat]['sub'][prov] = [ palabras ]
+            else:
+                # Si no tenia subscripciones simplemente inicializar el diccionario
+                USER[idchat]['sub'] = { prov: [ palabras ] }
+            context.bot.send_message(chat_id=idchat,
+                                     text=f'Ha actualizado correctamente sus opciones de subscripción. Envíe <b>/sub provincia</b> o <b>/sub palabras</b> para chequear sus subscripciones.',
+                                     parse_mode='HTML')
+        else:
+            # Si no comienza con el identificador de provincia se asume que está buscando la subscripción
+            mostrar_subscripciones_clave(update, context, clave=palabras)
+
 
 dispatcher.add_handler(CommandHandler('sub', sub))
 
@@ -472,7 +521,7 @@ def mostrar_informacion_usuario(update, context):
         print(e)
 
 
-def subscripciones_activas(idchat):
+def subscripciones_activas_producto(idchat):
     subs = []
     for tid in SUBSCRIPCIONES:
         tienda = obtener_nombre_tienda(tid)
@@ -485,71 +534,173 @@ def subscripciones_activas(idchat):
     return False
 
 
+def subscripciones_activas_clave(idchat, clave=False):
+    subs = []
+    if tiene_subscripciones_activas(idchat):
+        for prov, pal in USER[idchat]['sub'].items():
+            nombre_provincia = PROVINCIAS[prov][0]
+            palabras = ', '.join(pal)
+            ad = f'{nombre_provincia} --> "{palabras}"'
+            if clave:                
+                if clave in PROVINCIAS and clave == prov:
+                    subs.append(ad)
+                elif clave in pal:
+                    subs.append(ad)
+            else:
+                subs.append(ad)
+    if subs:
+        return '\n\n'.join(subs)
+    return False
+
 
 def mostrar_subscripciones(update, context):
-    try:
-        idchat = update.effective_chat.id
-        subs_act = subscripciones_activas(idchat)
-        if subs_act:
-            texto_respuesta = '⚠️ <b>Sus subscripciones activas:</b> ⚠️\n\n' + subs_act
-        else:
-            texto_respuesta = 'Usted no tiene subscripciones activas en este momento.'
-        context.bot.send_message(chat_id=idchat,
-                                 text=texto_respuesta, 
-                                 parse_mode='HTML')
-    except Exception as e:
-        print(e)
+    idchat = update.effective_chat.id
+    subs_act = subscripciones_activas_producto(idchat)
+    if subs_act:
+        texto_respuesta = '⚠️ <b>Subscripciones a productos:</b> ⚠️\n\n' + subs_act
+    else:
+        texto_respuesta = 'Usted no tiene subscripciones a productos específicos.'
+
+    context.bot.send_message(chat_id=idchat,
+                             text=texto_respuesta, 
+                             parse_mode='HTML')
+
+
+def mostrar_subscripciones_clave(update, context, clave=False):
+    idchat = update.effective_chat.id
+    subs_act = subscripciones_activas_clave(idchat, clave)
+    if subs_act:
+        texto_respuesta = '⚠️ <b>Subscripciones a palabras clave:</b> ⚠️\n\n' + subs_act
+    else:
+        texto_respuesta = 'No se encontraron subscripciones con los criterios especificados.'
+
+    context.bot.send_message(chat_id=idchat,
+                             text=texto_respuesta, 
+                             parse_mode='HTML')
 
 
 def actualizar_soup(url, mensaje, ahora, tienda):
-    respuesta = session.get(url)
-    data = respuesta.content.decode('utf8')
-    soup = BeautifulSoup(data, 'html.parser')
-    if mensaje not in RESULTADOS:
-        RESULTADOS[mensaje] = dict()
-    RESULTADOS[mensaje][tienda] = {'tiempo': ahora, 'soup': soup}
-    return soup
+    try:
+        respuesta = session.get(url)
+        data = respuesta.content.decode('utf8')
+        soup = BeautifulSoup(data, 'html.parser')
+        if mensaje not in RESULTADOS:
+            RESULTADOS[mensaje] = { tienda: {'tiempo': ahora, 'soup': soup } }
+        else:
+            RESULTADOS[mensaje][tienda] = {'tiempo': ahora, 'soup': soup }
+        return soup
+    except Exception as e:        
+        print('actualizar_soup:', e)
 
 
-def obtener_soup(mensaje, nombre, idchat, buscar_en_dpto=False):    
-    cadena_busqueda = ''
-    # Seleccionar provincia que tiene el usuario en sus ajustes
-    prov = USER[idchat]['prov']
-    tiendas = {}
-    if buscar_en_dpto:
-        dep = USER[idchat]['dep']
-        cadena_busqueda = f'Products?depPid={dep}'
-        tiendas = { USER[idchat]['tienda']: 'xxx' }
-    else:
-        cadena_busqueda = f'Search.aspx?keywords=%22{mensaje}%22&depPid=0'
-        tiendas = PROVINCIAS[prov][1]
-    # Arreglo con una tupla para cada tienda con sus valores
-    result = []    
+def obtener_mas_buscados(update, context):
+    mb = {}
+    for palabra in CACHE:
+        total = 0
+        for prov_id in CACHE[palabra]:
+            total += CACHE[palabra][prov_id]
+        mb[palabra] = total
+    mb_ord = dict(Counter(mb).most_common(10))
 
-    # Se hace el procesamiento para cada tienda en cada provincia
-    for tienda in tiendas:
-        url_base = f'{URL_BASE_TUENVIO}/{tienda}'
-        url = f'{url_base}/{cadena_busqueda}'
-        respuesta, data, soup_str = '', '', ''
-        ahora = datetime.datetime.now()
+    deps = obtener_departamentos()
+    if not context.args:
+        result = f'<b>Más buscados</b>\n'
+        for palabra in CACHE:
+            if not palabra in deps and palabra in mb_ord:
+                result += f'\n<b>Palabra: {palabra}</b>\n'
+                for prov_id in CACHE[palabra]:
+                    nombre_provincia = PROVINCIAS[prov_id][0]
+                    result += f'{nombre_provincia} --> {CACHE[palabra][prov_id]}\n'
+        return result
+    elif len(context.args) == 1:
+        prov = context.args[0]
+        if prov in PROVINCIAS:
+            nombre_provincia = PROVINCIAS[prov][0]
+            result = f'Más buscados en {nombre_provincia}\n\n'
+            for palabra in CACHE:
+                if not palabra in deps and palabra in mb_ord:
+                    for prov_id in CACHE[palabra]:
+                        if prov == prov_id:
+                            result += f'{palabra} --> {CACHE[palabra][prov]}\n'
+            return result
+        else:
+            return False
 
-        # Si el resultado no se encuentra cacheado buscar y guardar
-        if mensaje not in RESULTADOS or tienda not in RESULTADOS[mensaje]:
-            debug_print(f'Buscando: "{mensaje}" para {nombre}')
-            soup_str = actualizar_soup(url, mensaje, ahora, tienda)
-        # Si el resultado está cacheado
-        elif tienda in RESULTADOS[mensaje]:
-            delta = ahora - RESULTADOS[mensaje][tienda]['tiempo']
-            # Si aún es válido se retorna lo que hay en cache
-            if delta.total_seconds() <= TTL:
-                debug_print(f'"{mensaje}" aún en cache, no se realiza la búsqueda.')
-                soup_str = RESULTADOS[mensaje][tienda]["soup"]
-            # Si no es válido se actualiza la cache
+
+def mas_buscados(update, context):
+    try:
+        result = obtener_mas_buscados(update, context)
+        if result:
+            context.bot.send_message(chat_id=update.effective_chat.id, text=result, parse_mode='HTML')
+        else:
+            context.bot.send_message(chat_id=update.effective_chat.id, 
+                                     text='Debe especificar un código de provincia válido.')
+    except Exception as ex:
+        print('Más buscados:', ex)
+
+dispatcher.add_handler(CommandHandler('mb', mas_buscados))  
+
+
+# Realiza la búsqueda de la palabra clave en tuenvio.cu
+# mensaje: lo que se va a buscar
+# nombre: nombre de usuario para los logs
+# idchat: el id de chat desde el que se invocó la búsqueda
+# buscar_en_dpto: si esta búsqueda es general en un departamento
+def obtener_soup(mensaje, nombre, idchat, buscar_en_dpto=False, tienda=False):
+    try:
+        cadena_busqueda = ''
+        # Seleccionar provincia que tiene el usuario en sus ajustes
+        prov = USER[idchat]['prov']
+
+        # Actualizar estadisticas de busqueda
+        if mensaje in CACHE:
+            if prov in CACHE[mensaje]:
+                CACHE[mensaje][prov] += 1
             else:
-                debug_print(f'Actualizando : "{mensaje}" para {nombre}')
+                CACHE[mensaje][prov] = 1
+        else:
+            CACHE[mensaje] = { prov: 1 }
+        tiendas = {}
+        if buscar_en_dpto:
+            dep = USER[idchat]['dep']
+            cadena_busqueda = f'Products?depPid={dep}'
+            tiendas = { USER[idchat]['tienda']: '' }        
+        else:
+            cadena_busqueda = f'Search.aspx?keywords=%22{mensaje}%22&depPid=0'
+            if tienda:
+                tiendas = { tienda: '' }
+            else:
+                tiendas = PROVINCIAS[prov][1]
+        # Arreglo con una tupla para cada tienda con sus valores
+        result = []    
+
+        # Se hace el procesamiento para cada tienda en cada provincia
+        for tienda in tiendas:
+            url_base = f'{URL_BASE_TUENVIO}/{tienda}'
+            url = f'{url_base}/{cadena_busqueda}'
+            respuesta, data, soup_str = '', '', ''
+            ahora = datetime.datetime.now()
+            ahora_str = f'{ahora.hour}:{ahora.minute}:{ahora.second}'
+
+            # Si el resultado no se encuentra cacheado buscar y guardar
+            if mensaje not in RESULTADOS or tienda not in RESULTADOS[mensaje]:
+                debug_print(f'{ahora_str} Buscando: "{mensaje}" para {nombre}')
                 soup_str = actualizar_soup(url, mensaje, ahora, tienda)
-        result.append((soup_str, url_base, tienda))
-    return result
+            # Si el resultado está cacheado
+            elif tienda in RESULTADOS[mensaje]:
+                delta = ahora - RESULTADOS[mensaje][tienda]['tiempo']
+                # Si aún es válido se retorna lo que hay en cache
+                if delta.total_seconds() <= TTL:
+                    debug_print(f'{ahora_str} "{mensaje}" aún en cache, no se realiza la búsqueda.')
+                    soup_str = RESULTADOS[mensaje][tienda]["soup"]
+                # Si no es válido se actualiza la cache
+                else:
+                    debug_print(f'{ahora_str} Actualizando : "{mensaje}" para {nombre}')
+                    soup_str = actualizar_soup(url, mensaje, ahora, tienda)
+            result.append((soup_str, url_base, tienda))
+        return result
+    except Exception as e:
+        print('obtener_soup:', e)
 
 
 # Definir una funcion para cada tipo de elemento a parsear
@@ -575,7 +726,7 @@ def parsear_menu_departamentos(idchat):
     ahora = datetime.datetime.now()
 
     # Si no se le ha generado menu a la tienda o el que existe aun es valido
-    if not tienda in DEPARTAMENTOS or (ahora - CACHE[tienda]['menu_cat']).total_seconds() > TTL:     
+    if not tienda in DEPARTAMENTOS or (ahora - CACHE2[tienda]['menu_cat']).total_seconds() > TTL:     
         deps = {}
         navbar = soup.select('.mainNav .navbar .nav > li:not(:first-child)')
         for child in navbar:
@@ -587,9 +738,9 @@ def parsear_menu_departamentos(idchat):
                 deps[cat][d_id] = d_nombre
         DEPARTAMENTOS[tienda] = deps
         # TODO: Inicializar esta cache al inicio
-        if not tienda in CACHE:
-            CACHE[tienda] = {}
-        CACHE[tienda]['menu_cat'] = datetime.datetime.now()
+        if not tienda in CACHE2:
+            CACHE2[tienda] = {}
+        CACHE2[tienda]['menu_cat'] = datetime.datetime.now()
 
 
 
@@ -601,6 +752,7 @@ def notificar_subscritos(update, context, prov, palabras, nombre_provincia):
                     context.bot.send_message(chat_id=uid,
                              text=f'Atención: Se encontró <b>{palabras}</b> en <b>{nombre_provincia}</b>.', 
                              parse_mode='HTML')
+
 
 # Buscar los productos en la provincia seleccionada
 def buscar_productos(update, context, palabras=False, dep=False):
@@ -639,8 +791,6 @@ def buscar_productos(update, context, palabras=False, dep=False):
             texto_respuesta += "\n"
         if p_list:
             texto_respuesta = f'🎉🎉🎉¡¡¡Encontrado!!! 🎉🎉🎉\n\n{texto_respuesta}'
-            # Enviar notificaciones a los subscritos
-            notificar_subscritos(update, context, prov, palabras, nombre_provincia)
         else:
             if dep:
                 texto_respuesta = 'No hay productos en el departamento seleccionado ... 😭'
@@ -690,8 +840,7 @@ def procesar_palabra(update, context):
             buscar_productos(update, context)
         else:
             context.bot.send_message(chat_id=idchat, 
-                                     text=f'Debe seleccionar una provincia antes de intentar realizar una búsqueda. \
-                                     Utilice el botón {BOTONES["INICIO"]} del teclado o el comando /prov')
+                                     text=f'Debe seleccionar una provincia antes de intentar realizar una búsqueda. Utilice el botón {BOTONES["INICIO"]} del teclado o el comando /prov')
 
 
 dispatcher.add_handler(MessageHandler(Filters.text, procesar_palabra))
@@ -727,34 +876,61 @@ def notificar_usuario(context, idchat, tid, pid, encontrado):
     SUBSCRIPCIONES[tid][pid][idchat] = int(encontrado)
 
 
-def chequear_subscripciones(context):
-    print(SUBSCRIPCIONES)
+def notificar_subscritos_producto(context):
     # Para cada una de las tiendas que tienen subscripciones
+    for tid in SUBSCRIPCIONES:
+        nombre_tienda = obtener_nombre_tienda(tid)
+        # Para cada producto que tenga subscripciones
+        for pid in SUBSCRIPCIONES[tid]:
+            # Si existe al menos una subscripcion
+            if SUBSCRIPCIONES[tid][pid]:
+                nombre_producto = PRODUCTOS[pid]['nombre']
+                disponible = parsear_detalles_producto(tid, pid)
+                # Para cada usuario que este subscrito a ese producto
+                for idchat, notificado in SUBSCRIPCIONES[tid][pid].items():
+                    # Si el producto está disponible
+                    if disponible:                           
+                        # Y el usuario no ha sido notificado
+                        if not notificado:
+                            # Notificarle y actualizar el valor
+                            notificar_usuario(context, idchat, tid, pid, True)
+                    # Si el producto no esta disponible...
+                    else:
+                        # Y el usuario fue notificado anteriormente actualizar el valor
+                        if notificado:
+                            notificar_usuario(context, idchat, tid, pid, False)    
+
+
+# TODO: chequear que si notificó, no lo haga de nuevo
+def notificar_subscritos_palabras_clave(context):
+    for idchat in USER:
+        if tiene_subscripciones_activas(idchat):
+            for prov, pal in USER[idchat]['sub'].items():
+                for tid, tienda in obtener_tiendas(prov):
+                    encontradas = [] # lista de palabras encontradas a eliminar
+                    for palabra in pal:
+                        # Se utiliza como nombre de usuario para logs el propio idchat (2do arg)
+                        print('chequeado: ', idchat, prov, palabra, tienda)
+                        soup = obtener_soup(palabra, idchat, idchat, tienda=tid)[0][0]
+                        if len(soup.select('.hProductItems > li')):
+                            context.bot.send_message(chat_id=idchat,
+                                                     text=f'¡Alerta: hay productos con <b>{palabra}</b> en <b>{tienda}</b>!',
+                                                     parse_mode='HTML')
+                            encontradas.append(palabra)
+                    # Eliminar las palabras que ya fueron encontradas
+                    for p in encontradas:
+                        USER[idchat]['sub'][prov].remove(p)
+                        if not USER[idchat]['sub'][prov]:
+                            del USER[idchat]['sub'][prov]
+
+
+def chequear_subscripciones(context):    
     try:
-        for tid in SUBSCRIPCIONES:
-            nombre_tienda = obtener_nombre_tienda(tid)
-            # Para cada producto que tenga subscripciones
-            for pid in SUBSCRIPCIONES[tid]:
-                # Si existe al menos una subscripcion
-                if SUBSCRIPCIONES[tid][pid]:
-                    nombre_producto = PRODUCTOS[pid]['nombre']
-                    disponible = parsear_detalles_producto(tid, pid)
-                    # Para cada usuario que este subscrito a ese producto
-                    for idchat, notificado in SUBSCRIPCIONES[tid][pid].items():
-                        # Si el producto está disponible
-                        if disponible:                           
-                            # Y el usuario no ha sido notificado
-                            if not notificado:
-                                # Notificarle y actualizar el valor
-                                notificar_usuario(context, idchat, tid, pid, True)
-                        # Si el producto no esta disponible...
-                        else:
-                            # Y el usuario fue notificado anteriormente actualizar el valor
-                            if notificado:
-                                notificar_usuario(context, idchat, tid, pid, False)
+        notificar_subscritos_producto(context)
+        notificar_subscritos_palabras_clave(context)
     except RuntimeError:
         pass
 
 
 job_queue = updater.job_queue
-job_queue.run_repeating(chequear_subscripciones, 300)
+job_queue.run_repeating(chequear_subscripciones, TTL)
