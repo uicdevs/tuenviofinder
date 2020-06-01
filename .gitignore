@@ -2,3 +2,4 @@
 .*
 !.editorconfig
 /logs/*
+/assets/*

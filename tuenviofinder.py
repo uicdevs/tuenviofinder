@@ -65,10 +65,10 @@ PROVINCIAS = {
 }
 
 TEXTO_AYUDA = f'<b>¡Bienvenido a la {BOTONES["AYUDA"]}!</b>\n\nEl bot cuenta con varias opciones para su manejo, siéntase libre de consultar esta \
-Ayuda siempre que lo considere necesario. \n\n<b>{BOTONES["INICIO"]}</b>: Reinicia el bot a sus opciones por defecto. \
-Sí, las búsquedas se realizarán en 🐴 <b>Granma</b> 😉.\n\n<b>{BOTONES["PROVINCIAS"]}</b>: Muestra un menú con las provincias para seleccionar \
+Ayuda siempre que lo considere necesario. \n\n<b>{BOTONES["INICIO"]}</b>: Reinicia el bot a sus opciones por defecto.\n\n<b>{BOTONES["INFO"]}</b>: \
+Muestra sus opciones de configuración actuales.\n\n{BOTONES["PROVINCIAS"]}</b>: Muestra un menú con las provincias para seleccionar \
 aquella donde se realizarán las búsquedas.\n\n<b>{BOTONES["CATEGORIAS"]}</b>: Muestra las categorías disponibles en una tienda, que debe\
- haber seleccionado previamente.\n\n 💥 <b>¡Comandos avanzados! 💥</b>\n\nSi siente pasión por los comandos \
+ haber seleccionado previamente.\n\n<b>{BOTONES["SUBS"]}</b>: Muestra las opciones de subscripción disponibles.\n\n 💥 <b>¡Comandos avanzados! 💥</b>\n\nSi siente pasión por los comandos \
  le tenemos buenas noticias. Acceda a todos ellos directamente enviando la orden correspondiente seguida del caracter "/" \
  <b>Por ejemplo:</b> /lh cambia la provincia de búsqueda a 🦁 <b>La Habana</b>. Otros comandos disponibles son /prov, /cat, /dep, /sub, /start y /ayuda.\n\n\
  Los comandos de selección manual de provincia son:\n/pr, /ar, /my, /lh, /mt, /cf, /ss, /ca, /cm, /lt, /hl, /gr, /sc, /gt, /ij.'
@@ -275,6 +275,28 @@ def dptos(update, context):
 
 dispatcher.add_handler(CommandHandler('dptos', dptos))
 
+
+
+def usuarios_registrados(update, context):
+    try:
+        result = {}
+        for idchat in USER:
+            if 'prov' in USER[idchat]:
+                prov = USER[idchat]['prov']
+                if prov in result:
+                    result[prov] += 1
+                else:
+                    result[prov] = 1
+        message = ''
+        for prov in result:
+            message += f'{prov}: {result[prov]}\n'
+        if message:
+            context.bot.send_message(chat_id=update.effective_chat.id,
+                                     text=message)
+    except Exception as ex:
+        print('usuarios_registrados:', ex)
+
+dispatcher.add_handler(CommandHandler('ur', usuarios_registrados))
 
 
 # Generar el teclado con las categorías
