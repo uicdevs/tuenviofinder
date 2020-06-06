@@ -1,10 +1,6 @@
 #!/usr/bin/python3
-import datetime
-import logging
-import os
-from logging.handlers import RotatingFileHandler
+import datetime, os, mysql.connector, sys
 from pathlib import Path
-import sqlite3, mysql.connector, sys
 from collections import Counter
 
 import requests
@@ -16,25 +12,22 @@ from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, Callb
 
 DIRECTORY = Path(os.path.dirname(os.path.realpath(__file__)))
 
-logger = logging.getLogger('tuenviofinder')
-logger.setLevel(logging.DEBUG)
-formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
-fh = RotatingFileHandler(str(DIRECTORY / 'logs' / 'sync.log'), mode='a', maxBytes=5 * 1024 * 1024, backupCount=1)
-fh.setFormatter(formatter)
-logger.addHandler(fh)
-
 env_path = DIRECTORY / '.env'
 load_dotenv(dotenv_path=env_path)
 
 TOKEN = os.getenv('TOKEN')
-BD_FILE = os.getenv('BD_FILE')
 URL = f'https://api.telegram.org/bot{TOKEN}/'
+
+# En caso de usar un proxy
+REQUEST_KWARGS={
+    'proxy_url': 'http://172.26.1.10:3128/',
+}
 
 URL_BASE_TUENVIO = 'https://www.tuenvio.cu'
 
 HEADERS = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Ubuntu Chromium/81.0.4044.122 Chrome/81.0.4044.122 Safari/537.36' }
 
-SUBSCRIPCIONES = CACHE = RESPUESTA_PENDIENTE = {}
+RESPUESTA_PENDIENTE = {}
 
 BOTONES = {
     'INICIO': '🚀 Inicio',
@@ -44,6 +37,7 @@ BOTONES = {
     'INFO': '👤 Info',
     'SUBS': '⚓️ Subs',
     'MAS_BUSCADOS': '🔍 Más buscados',
+    'PRODUCTOS': '📦 Productos',
     'ACERCA_DE': '🏷 Acerca de'
 }
 
@@ -66,12 +60,6 @@ LOGOS = {
     'lh': '🦁',
 }
 
-# Tiempo en segundos que una palabra de búsqueda permanece válida
-TTL = 900
-
-# Máximo número de subscripciones que puede tener un usuario en una cuenta estándar
-MAX_SUBSCRIPCIONES_PERMITIDAS = 3
-
 session = requests.Session()  
 
 TEXTO_AYUDA = f'<b>¡Bienvenido a la {BOTONES["AYUDA"]}!</b>\n\nEl bot cuenta con varias opciones para su manejo, siéntase libre de consultar esta \
@@ -82,11 +70,6 @@ aquella donde se realizarán las búsquedas.\n\n<b>{BOTONES["CATEGORIAS"]}</b>: 
   💥</b>\n\nSi siente pasión por los comandos le tenemos buenas noticias. Acceda a todos ellos directamente enviando la orden correspondiente seguida del caracter "/" \
  <b>Por ejemplo:</b> /lh cambia la provincia de búsqueda a 🦁 <b>La Habana</b>. Otros comandos disponibles son /prov, /cat, /sub, /start y /ayuda.\n\n\
  Los comandos de selección manual de provincia son:\n/pr, /ar, /my, /lh, /mt, /cf, /ss, /ca, /cm, /lt, /hl, /gr, /sc, /gt, /ij.'
-
-
-def debug_print(message):
-    print(message)
-    logger.debug(message)
 
 
 def inicializar_bd():
@@ -102,6 +85,27 @@ def inicializar_bd():
     
     cursor = conn.cursor()
     return (conn, cursor)  
+
+
+def obtener_ajuste_bot(clave):
+    conn, cursor = inicializar_bd()
+    cursor.execute('''SELECT valor FROM ajustes_bot WHERE clave = %s''', (clave, ))
+    result = cursor.fetchone()
+    conn.close()
+    if result:
+        return result[0]
+    else:
+        debug_print(f'obtener_ajuste_bot: clave {clave} inexistente')
+    return False
+
+
+def debug_print(message, tipo='estado'):
+    print(message)
+    conn, cursor = inicializar_bd()
+    fecha = datetime.datetime.now()
+    cursor.execute('''INSERT INTO log(mensaje, fecha, tipo) VALUES(%s, %s, %s)''', (message, fecha, tipo))
+    conn.commit()
+    conn.close()
 
 
 # Retorna una lista con tuplas de id de tienda y su nombre dada una provincia
@@ -169,13 +173,15 @@ def obtener_ajustes_usuario(idchat):
     cursor.execute('''SELECT * FROM ajustes_usuario WHERE uid=%s''', (idchat, ))
     au = cursor.fetchone()
     conn.close()
-    return {
-        'prov_id': au[1],
-        'tid': au[2],
-        'cid': au[3],
-        'did': au[4],
-        'cat_kb_message_id': au[5]
-    } 
+    if au:
+        return {
+            'prov_id': au[1],
+            'tid': au[2],
+            'cid': au[3],
+            'did': au[4],
+            'cat_kb_message_id': au[5]
+        }
+    return False
 
 
 def obtener_nombre_categoria(cid):
@@ -255,6 +261,7 @@ def obtener_mensaje(clave):
 
 # Inicializar todo
 updater = Updater(TOKEN, use_context=True)
+#updater = Updater(TOKEN, use_context=True, request_kwargs=REQUEST_KWARGS)
 dispatcher = updater.dispatcher
 
 
@@ -278,16 +285,23 @@ def start(update, context):
 dispatcher.add_handler( CommandHandler('start', start) )
 
 
+
 def iniciar_aplicacion(update, context):
     try:
         mensaje_bienvenida = obtener_mensaje('bienvenida')
 
         idchat = update.effective_chat.id
 
+        conn, cursor = inicializar_bd()
+        cursor.execute('''DELETE FROM ajustes_usuario WHERE uid=%s''', (idchat, ))
+        cursor.execute('''INSERT INTO ajustes_usuario(uid) values (%s)''', (idchat, ))
+        conn.commit()
+        conn.close()
+
         button_list = [
             [ BOTONES['INICIO'], BOTONES['AYUDA'], BOTONES['INFO'] ],
             [ BOTONES['PROVINCIAS'], BOTONES['CATEGORIAS'], BOTONES['SUBS'] ],
-            [ BOTONES['MAS_BUSCADOS'], BOTONES['ACERCA_DE'] ]
+            [ BOTONES['MAS_BUSCADOS'], BOTONES['PRODUCTOS'], BOTONES['ACERCA_DE'] ]
         ]
 
         reply_markup = ReplyKeyboardMarkup(button_list, resize_keyboard=True)
@@ -306,6 +320,48 @@ def ayuda(update, context):
 
 
 dispatcher.add_handler(CommandHandler('ayuda', ayuda))
+
+
+def ultimos_registros_bot(update, context):
+    texto_respuesta = ''
+    conn, cursor = inicializar_bd()
+    cursor.execute('''SELECT lid, mensaje FROM log ORDER BY fecha DESC LIMIT 10''')
+    for (lid, mensaje) in cursor:
+        texto_respuesta += f'{lid}. 📜 {mensaje}\n'
+    conn.close()
+    if texto_respuesta:
+        texto_respuesta = 'Últimos registros del log:\n\n' + texto_respuesta
+        context.bot.send_message(chat_id=update.effective_chat.id,
+                             text=texto_respuesta,
+                             parse_mode='HTML')
+    else:
+        context.bot.send_message(chat_id=update.effective_chat.id,
+                             text='No se encontraron registros.',
+                             parse_mode='HTML')
+
+
+dispatcher.add_handler(CommandHandler('log', ultimos_registros_bot))
+
+
+def ultimas_subscripciones(update, context):
+    texto_respuesta = ''
+    conn, cursor = inicializar_bd()
+    cursor.execute('''SELECT sid, criterio, nombre, frecuencia FROM subscripcion join usuario WHERE subscripcion.uid = usuario.uid  ORDER BY fecha DESC LIMIT 10''')
+    for (sid, criterio, nombre, frecuencia) in cursor:
+        texto_respuesta += f'{sid}. 📜{criterio} 👤{nombre} ⏰{frecuencia}\n'
+    conn.close()
+    if texto_respuesta:
+        texto_respuesta = 'Últimas subscripciones:\n\n' + texto_respuesta
+        context.bot.send_message(chat_id=update.effective_chat.id,
+                             text=texto_respuesta,
+                             parse_mode='HTML')
+    else:
+        context.bot.send_message(chat_id=update.effective_chat.id,
+                             text='No se encontraron subscripciones.',
+                             parse_mode='HTML')
+
+
+dispatcher.add_handler(CommandHandler('subs', ultimas_subscripciones))
 
 
 def resetear_provincia_usuario(idchat, prov):
@@ -345,11 +401,10 @@ def manejador_teclados_inline(update, context):
             generar_teclado_categorias(update, context, nuevo=True)
         elif query.data.split(':')[0] == 'sub':
             opcion = query.data.split(':')[1]
-            if opcion == 'ver':
-                mostrar_subscripciones(update, context)
-            elif opcion == 'nueva':
-                context.bot.send_message(text='Ok, envíe a continuación el criterio de búsqueda (palabras) para su subscripción',
-                                              chat_id=query.message.chat_id)
+            if opcion == 'nueva':
+                context.bot.send_message(text='Ok, envíe a continuación el criterio de búsqueda (palabras) para su subscripción.',
+                                              chat_id=query.message.chat_id,
+                                              parse_mode='HTML')
                 RESPUESTA_PENDIENTE[idchat] = 'sub:nueva'
             elif opcion == 'elim':
                 eliminar_subscripciones_activas(idchat)
@@ -358,10 +413,9 @@ def manejador_teclados_inline(update, context):
                                          si las tenía. Recuerde que siempre puede volver a subscribirse utilizando <b>/sub provincia palabras</b>.',
                                          parse_mode='HTML')
             else:
-                # Acción por defecto, es un ID de provincia
-                prov_id = opcion.split('<-->')[0]
-                criterio = opcion.split('<-->')[1]
-                if registrar_subscripcion(idchat, prov_id, criterio):
+                # Acción por defecto, es un ID de provincia con los demás datos para crear la subscripción
+                prov_id, criterio, frec = opcion.split('<-->')
+                if registrar_subscripcion(idchat, prov_id, criterio, int(frec)):
                     context.bot.send_message(chat_id=idchat,
                                              text=f'Ha actualizado correctamente sus opciones de subscripción. Envíe <b>/sub</b> para chequear sus subscripciones o <b>/sub elim</b> para eliminarlas. Las subscripciones activas serán eliminadas automáticamente luego de 24 horas.',
                                              parse_mode='HTML')
@@ -369,9 +423,25 @@ def manejador_teclados_inline(update, context):
                     context.bot.send_message(chat_id=idchat,
                                              text=f'Ha alcanzado el número máximo de subscripciones posibles para este tipo de cuenta.',
                                              parse_mode='HTML')
+        elif query.data.split(':')[0] == 'sub-prod':
+            opcion = query.data.split(':')[1]
+            prov_id, pid = opcion.split('<-->')
+            nombre_producto = obtener_producto_segun_pid(pid)[1]
+            if registrar_subscripcion(idchat, prov_id, nombre_producto, 1800):
+                context.bot.send_message(chat_id=idchat,
+                                         text=f'Ha actualizado correctamente sus opciones de subscripción. Envíe <b>/sub</b> para chequear sus subscripciones o <b>/sub elim</b> para eliminarlas. Las subscripciones activas serán eliminadas automáticamente luego de 24 horas.',
+                                         parse_mode='HTML')
+            else:
+                context.bot.send_message(chat_id=idchat,
+                                         text=f'Ha alcanzado el número máximo de subscripciones posibles para este tipo de cuenta.',
+                                         parse_mode='HTML')
         elif query.data.split(':')[0] == 'mb':
             pal = query.data.split(':')[1]
-            enviar_mensaje_productos_encontrados(update, context, palabras=pal)
+            if obtener_credito_usuario(idchat) > 0:
+                enviar_mensaje_productos_encontrados(update, context, palabras=pal)
+            else:
+                context.bot.send_message(chat_id=idchat, 
+                                     text=f'🎩 Funcionalidad restrigida. Considere recargar crédito.')
         elif es_id_de_provincia(query.data):
             try:
                 prov = query.data
@@ -539,26 +609,32 @@ def generar_teclado_departamentos(update, context):
 
 def generar_teclado_opciones_subscripcion(update, context):
     botones = [
-        InlineKeyboardButton('🆕 Crear nueva', callback_data='sub:nueva'),
-        InlineKeyboardButton('👀 Ver todas', callback_data='sub:ver'),        
+        InlineKeyboardButton('🆕 Crear nueva', callback_data='sub:nueva'),     
         InlineKeyboardButton('🗑 Eliminar todas', callback_data='sub:elim'),
     ]
+
+    idchat = update.effective_chat.id
+    subs_act = subscripciones_activas_con_formato(idchat)
+    if subs_act:
+        texto_respuesta = '⚠️ <b>Subscripciones activas:</b> ⚠️\n\n' + subs_act
+    else:
+        texto_respuesta = 'Usted no tiene subscripciones activas en este momento.'
 
     reply_markup = InlineKeyboardMarkup( construir_menu( botones, n_cols=2) )
 
     context.bot.send_message(chat_id=update.effective_chat.id, 
-                             text='Menú de subscripciones. Usted desea:',
-                             reply_markup=reply_markup)
-
+                             text=texto_respuesta,
+                             reply_markup=reply_markup,
+                             parse_mode='HTML')
 
 
 
 def subscripciones_activas(idchat):
     conn, cursor = inicializar_bd()
     subs = []
-    cursor.execute('''SELECT criterio, fecha, prov_id, sid FROM subscripcion WHERE uid=%s and estado=%s''', (idchat, 'activa'))
-    for (criterio, fecha, prov_id, sid) in cursor:
-        subs.append( (criterio, fecha, prov_id, sid) )
+    cursor.execute('''SELECT criterio, fecha, prov_id, sid, frecuencia FROM subscripcion WHERE uid=%s and estado=%s''', (idchat, 'activa'))
+    for (criterio, fecha, prov_id, sid, frecuencia) in cursor:
+        subs.append( (criterio, fecha, prov_id, sid, frecuencia) )
     conn.close()
     return subs
 
@@ -601,7 +677,7 @@ def sub(update, context):
         prov = args[0]
         palabras = ' '.join(args[1:])
         if es_id_de_provincia(prov):
-            if registrar_subscripcion(idchat, prov, palabras):
+            if registrar_subscripcion(idchat, prov, palabras, 1800):
                 context.bot.send_message(chat_id=idchat,
                                          text=f'Ha actualizado correctamente sus opciones de subscripción. Envíe `/sub` para chequear sus subscripciones o `/sub elim` para eliminarlas. Las subscripciones activas serán eliminadas automáticamente luego de 24 horas.',
                                          parse_mode='HTML')
@@ -619,13 +695,6 @@ def sub(update, context):
 dispatcher.add_handler(CommandHandler('sub', sub))
 
 
-def usuario_subscrito_a_producto(idchat, tid, pid):
-    if tid in SUBSCRIPCIONES:
-        if pid in SUBSCRIPCIONES[tid]:
-            return idchat in SUBSCRIPCIONES[tid][pid]
-    return False
-
-
 def eliminar_subscripcion_unica(update, context):
     try:
         conn, cursor = inicializar_bd()
@@ -640,6 +709,61 @@ def eliminar_subscripcion_unica(update, context):
         print('eliminar_subscripcion_unica:', ex)
 
 
+def cargar_comandos_subscripcion():
+    try:
+        conn, cursor = inicializar_bd()
+        cursor.execute('''SELECT sid FROM subscripcion WHERE estado=%s''', ('activa', ))
+        for (sid, ) in cursor:
+            dispatcher.add_handler(CommandHandler(f'eliminar_sub_{sid}', eliminar_subscripcion_unica), 1)
+        conn.close()
+    except Exception as ex:
+        print('cargar_comandos_subscripcion:', ex)
+
+
+cargar_comandos_subscripcion()
+
+
+def es_admin(uid):
+    try:
+        conn, cursor = inicializar_bd()
+        cursor.execute('''SELECT tipo FROM usuario WHERE uid=%s''', ('uid', ))
+        result = cursor.fetchone()
+        conn.close()
+        if result:
+            if result[0]:
+                return result[0] == 'admin'
+        return False
+    except Exception as ex:
+        print('es_admin:', ex)
+
+
+def consultar_credito_usuario(update, context):
+    try:
+        idchat = update.effective_chat.id
+        #es_admin(idchat)
+        uid = update.message.text.split('_')[-1]
+        credito = obtener_credito_usuario(uid)
+        context.bot.send_message(chat_id=update.effective_chat.id, 
+                                 text=f'El monto del usuario con id: <b>{uid}</b> es de <b>{credito} TEF</b>.',
+                                 parse_mode='HTML')
+    except Exception as ex:
+        debug_print('consultar_credito_usuario', ex)
+
+
+def cargar_comandos_credito():
+    try:
+        conn, cursor = inicializar_bd()
+        cursor.execute('''SELECT uid FROM usuario''')
+        for (uid, ) in cursor:
+            dispatcher.add_handler(CommandHandler(f'credito_{uid}', consultar_credito_usuario), 1)
+        conn.close()
+    except Exception as ex:
+        print('cargar_comandos_credito:', ex)
+
+cargar_comandos_credito()
+
+
+
 def desactivar_notificacion(uid, criterio, prov_id):
     conn, cursor = inicializar_bd()
     cursor.execute('''UPDATE subscripcion SET estado=%s WHERE uid=%s and criterio=%s and prov_id=%s''',
@@ -648,15 +772,28 @@ def desactivar_notificacion(uid, criterio, prov_id):
     conn.close()
 
 
+def obtener_credito_usuario(idchat):
+    try:        
+        conn, cursor = inicializar_bd()
+        cursor.execute('''SELECT credito FROM usuario WHERE uid=%s''', (idchat, ))
+        result = cursor.fetchone()
+        conn.close()        
+        if result:
+            if result[0]:
+                return result[0]
+        return 0
+    except Exception as ex:
+        print('obtener_credito_usuario:', ex)
 
-def registrar_subscripcion(idchat, prov_id, palabras):
+
+def registrar_subscripcion(idchat, prov_id, palabras, frec):
     try:
         subs_act = subscripciones_activas(idchat)
-        if len(subs_act) < MAX_SUBSCRIPCIONES_PERMITIDAS:
+        if len(subs_act) < int(obtener_ajuste_bot('max_subscripciones_permitidas')) or obtener_credito_usuario(idchat) > 0:
             conn, cursor = inicializar_bd()
             ahora = datetime.datetime.now()
-            cursor.execute('''INSERT INTO subscripcion(uid, criterio, fecha, estado, prov_id) VALUES(%s, %s, %s, %s, %s)''', 
-                            (idchat, palabras, ahora, 'activa', prov_id))
+            cursor.execute('''INSERT INTO subscripcion(uid, criterio, fecha, prov_id, frecuencia, ultimo_escaneo) VALUES(%s, %s, %s, %s, %s, %s)''', 
+                            (idchat, palabras, ahora, prov_id, frec, ahora))
             sid = cursor.lastrowid
             dispatcher.add_handler(CommandHandler(f'eliminar_sub_{sid}', eliminar_subscripcion_unica), 1)
             conn.commit()
@@ -669,19 +806,21 @@ def registrar_subscripcion(idchat, prov_id, palabras):
 
 
 
-def generar_teclado_provincias_subscripcion(update, context, nombre_producto):
+def generar_teclado_provincias_subscripcion(update, context, pid):
     try:
         botones_provincias = []
         conn, cursor = inicializar_bd()
         cursor.execute('SELECT prov_id, nombre FROM provincia')
         for (prov_id, nombre) in cursor:
             logo = obtener_logo_provincia(prov_id)
-            botones_provincias.append(InlineKeyboardButton(f'{logo} {prov_id}', callback_data=f'sub:{prov_id}<-->{nombre_producto}'))
-
+            botones_provincias.append(InlineKeyboardButton(f'{logo} {prov_id}', callback_data=f'sub-prod:{prov_id}<-->{pid}'))
         conn.close()
+
+
 
         reply_markup = InlineKeyboardMarkup( construir_menu(botones_provincias, n_cols=4) )
 
+        nombre_producto = obtener_producto_segun_pid(pid)[1]
         context.bot.send_message(chat_id=update.effective_chat.id,
                                  text=f'Seleccione una provincia para subscribirse a {nombre_producto}',
                                  reply_markup=reply_markup)
@@ -691,11 +830,20 @@ def generar_teclado_provincias_subscripcion(update, context, nombre_producto):
 
 def sub_a(update, context):
     try:
-        pid = update.message.text.split('_')[-1]
-        nombre_producto = obtener_producto_segun_pid(pid)[1]
-        generar_teclado_provincias_subscripcion(update, context, nombre_producto)
+        pid = update.message.text.split('_')[-1]        
+        generar_teclado_provincias_subscripcion(update, context, pid)
     except Exception as ex:
         print('sub_a:', ex)
+
+       
+def cargar_comandos_subscripcion_a_producto():
+    conn, cursor = inicializar_bd()
+    cursor.execute('''SELECT pid FROM producto''')
+    for (pid, ) in cursor:
+        dispatcher.add_handler(CommandHandler(f'subscribirse_a_{pid}', sub_a), 1)
+    conn.close()    
+
+cargar_comandos_subscripcion_a_producto()         
     
 
 # Generar masivamente los comandos de selección de provincia
@@ -730,20 +878,60 @@ def obtener_tienda_a_partir_de_comando(comando):
     return result[0]  
 
 
+def usuarios_vip():
+    u_perm = []
+    conn, cursor = inicializar_bd()
+    cursor.execute('''SELECT uid FROM usuario WHERE tipo = %s''', ('vip', ))
+    for (uid, ) in cursor:
+        u_perm.append(uid)
+    conn.close()
+    return u_perm
+
+
+def acreditar_usuario(update, context):
+    idchat = update.effective_chat.id
+    if len(context.args) != 2:
+        context.bot.send_message(chat_id=idchat, text='Error, número incorrecto de parámetros')
+    else:
+        try:
+            conn, cursor = inicializar_bd()
+            uid = context.args[0]
+            monto = context.args[1]
+            cursor.execute('''UPDATE usuario SET credito = credito + %s WHERE uid=%s''', (monto, uid))
+            conn.commit()
+            conn.close()
+            context.bot.send_message(chat_id=idchat, 
+                                     text=f'Monto acreditado correctamente, pulse /credito_{uid} para consultar el saldo del usuario acreditado.')
+            # Notificar al usuario que recibe la acreditación
+            context.bot.send_message(chat_id=uid, 
+                                     text=f'Se han acreditado {monto} TEF a su cuenta de usuario. Consulte {BOTONES["INFO"]} para conocer su crédito.')
+            debug_print(f'Acreditados {monto} TEF a la cuenta de usuario {uid}')
+            dispatcher.add_handler(CommandHandler(f'credito_{uid}', consultar_credito_usuario))
+        except Exception as ex:
+            debug_print(f'acreditar_usuario: {ex}', 'error')                      
+
+
+dispatcher.add_handler(CommandHandler('acreditar', acreditar_usuario))
+
+
 def seleccionar_categorias_tienda(update, context):
+    idchat = update.effective_chat.id
     try:
-        conn, cursor = inicializar_bd()
-        comando = update.message.text.split('/')[1]
-        tid = obtener_tienda_a_partir_de_comando(comando)
-        idchat = update.effective_chat.id
-        cursor.execute('''UPDATE ajustes_usuario SET tid=%s WHERE uid=%s''', (tid, idchat))
-        conn.commit()
-        nombre_tienda = obtener_nombre_tienda(tid)
-        texto_respuesta = f'Espere mientras se obtienen las categorías para: 🏬 <b>{nombre_tienda}</b>'    
-        context.bot.send_message(chat_id=idchat, text=texto_respuesta, parse_mode='HTML')
-        conn.close()
-        parsear_menu_departamentos(idchat)
-        generar_teclado_categorias(update, context, nuevo=True)
+        if obtener_credito_usuario(idchat):
+            conn, cursor = inicializar_bd()
+            comando = update.message.text.split('/')[1]
+            tid = obtener_tienda_a_partir_de_comando(comando)        
+            cursor.execute('''UPDATE ajustes_usuario SET tid=%s WHERE uid=%s''', (tid, idchat))
+            conn.commit()
+            nombre_tienda = obtener_nombre_tienda(tid)
+            texto_respuesta = f'Espere mientras se obtienen las categorías para: 🏬 <b>{nombre_tienda}</b>'    
+            context.bot.send_message(chat_id=idchat, text=texto_respuesta, parse_mode='HTML')
+            conn.close()
+            parsear_menu_departamentos(idchat)
+            generar_teclado_categorias(update, context, nuevo=True)
+        else:
+            context.bot.send_message(chat_id=idchat, 
+                                     text=f'🎩 Funcionalidad restrigida. Considere recargar crédito.')
     except Exception as ex:
         print('seleccionar_categorias_tienda:', ex)
     
@@ -765,23 +953,21 @@ actualizar_comandos_tienda(dispatcher)
 
 
 def mostrar_informacion_usuario(update, context):
-    try:
-        conn, cursor = inicializar_bd()
+    try:        
         idchat = update.effective_chat.id
-        cursor.execute('''SELECT prov_id, tid, cid, did FROM ajustes_usuario WHERE uid=%s''', (idchat, ))
-        result = cursor.fetchone()
-        conn.close()
+        result = obtener_ajustes_usuario(idchat)
+        credito = obtener_credito_usuario(idchat)
         if result:
             nombre_provincia = nombre_tienda = categoria = departamento = 'Sin selección'
-            if result[0]:
-                nombre_provincia = obtener_nombre_provincia(result[0])
-            if result[1]:
-                nombre_tienda = obtener_nombre_tienda(result[1])
-            if result[2]:
-                categoria = obtener_nombre_categoria(result[2])
-            if result[3]:
-                departamento = obtener_nombre_departamento(result[3])
-            texto_respuesta = f'📌📌 Información Seleccionada 📌📌\n\n🌆 <b>Provincia:</b> {nombre_provincia}\n🛒 <b>Tienda:</b> {nombre_tienda}\n🔰 <b>Categoría:</b> {categoria}\n📦 <b>Departamento:</b> {departamento}'
+            if result['prov_id']:
+                nombre_provincia = obtener_nombre_provincia(result['prov_id'])
+            if result['tid']:
+                nombre_tienda = obtener_nombre_tienda(result['tid'])
+            if result['cid']:
+                categoria = obtener_nombre_categoria(result['cid'])
+            if result['did']:
+                departamento = obtener_nombre_departamento(result['did'])
+            texto_respuesta = f'📌📌 Información Seleccionada 📌📌\n\n🌆 <b>Provincia:</b> {nombre_provincia}\n🛒 <b>Tienda:</b> {nombre_tienda}\n🔰 <b>Categoría:</b> {categoria}\n📦 <b>Departamento:</b> {departamento}\n💰 Crédito: {credito}'
             context.bot.send_message(chat_id=idchat, 
                                      text=texto_respuesta, 
                                      parse_mode='HTML')
@@ -789,17 +975,32 @@ def mostrar_informacion_usuario(update, context):
             context.bot.send_message(chat_id=idchat, 
                                      text='Usted no tiene ajustes registrados aún.', 
                                      parse_mode='HTML')
-    except Exception as e:
-        print('mostrar_informacion_usuario:', e)
+    except Exception as ex:
+        print('mostrar_informacion_usuario:', ex)
+
+
+def formatear_frecuencia(frecuencia):
+    frecuencia = int(frecuencia)
+    if frecuencia == 900:
+        return 'cada ⏰ 15 min.'
+    elif frecuencia == 1800:
+        return 'cada ⏰ 30 min.'
+    elif frecuencia == 3600:
+        return 'cada ⏰ 1 hora'
+    elif frecuencia == 10800:
+        return 'cada ⏰ 3 horas'
 
 
 # Retorna las subscripciones activas listas para enviar en un mensaje
 # (Se debe añadir la cabecera)
 def subscripciones_activas_con_formato(idchat):
     subs = []
-    for (criterio, fecha, prov_id, sid) in subscripciones_activas(idchat):
+    i = 1
+    for (criterio, fecha, prov_id, sid, frecuencia) in subscripciones_activas(idchat):
         nombre_provincia = obtener_nombre_provincia(prov_id)
-        subs.append(f'<b>Criterio:</b> {criterio} ({nombre_provincia}) /eliminar_sub_{sid}') 
+        frec_formato = formatear_frecuencia(frecuencia)
+        subs.append(f'<b>{i}.</b> 📜<b>{criterio}</b> en {nombre_provincia} {frec_formato} /eliminar_sub_{sid}') 
+        i = i + 1
     if subs:
         return '\n\n'.join(subs)
     return False
@@ -883,7 +1084,6 @@ def actualizar_resultados_busqueda(**kargs):
         for nombre, precio, plink, pid in productos:
             # Solo lo adiciona a la base de datos si no existe
             registrar_producto(nombre=nombre, precio=precio, enlace=plink, pid=pid, did=did)
-
             cursor.execute('''INSERT INTO resultado(bid, pid) VALUES(%s, %s)''', (bid, pid) )
             conn.commit()
 
@@ -950,8 +1150,8 @@ def obtener_resultados_busqueda_en_bd(idchat, mensaje, tienda, did):
 # buscar_en_dpto: si esta búsqueda es general en un departamento
 # TODO: definir correctamente el nombre para esta funcion
 def obtener_soup(mensaje, nombre, idchat, buscar_en_dpto=False, tienda=False):
-    try:
-        # Seleccionar provincia que tiene el usuario en sus ajustes        
+    try:        
+        # Seleccionar provincia que tiene el usuario en sus ajustes  
         prov_id = obtener_ajustes_usuario(idchat)['prov_id']
         tiendas = []
         if buscar_en_dpto:
@@ -964,7 +1164,7 @@ def obtener_soup(mensaje, nombre, idchat, buscar_en_dpto=False, tienda=False):
             if tienda:
                 tiendas = [ tienda ]
             else:
-                for tid, nombre in obtener_tiendas(prov_id):
+                for tid, nombre_tienda in obtener_tiendas(prov_id):
                     tiendas.append( tid )
 
         # Se hace el procesamiento para cada tienda en cada provincia
@@ -972,27 +1172,26 @@ def obtener_soup(mensaje, nombre, idchat, buscar_en_dpto=False, tienda=False):
         bid_results = []
         for tienda in tiendas:            
             ahora = datetime.datetime.now()
-            ahora_str = f'{ahora.hour}:{ahora.minute}:{ahora.second}'
             
             res_busqueda = obtener_resultados_busqueda_en_bd(idchat, mensaje, tienda, did)
 
             se_debe_actualizar = False
             # Si el resultado no se encuentra cacheado buscar y guardar
             if not res_busqueda:
-                debug_print(f'{ahora_str} Buscando: "{mensaje}" para {nombre}')
+                debug_print(f'Buscando: "{mensaje}" para {nombre} en {tienda}')
                 se_debe_actualizar = True            
             # Si el resultado está cacheado
             else:
                 delta = ahora - res_busqueda['fecha']
                 # Si aún es válido se retorna lo que hay en cache
-                if delta.total_seconds() <= TTL:
+                if delta.total_seconds() <= int( obtener_ajuste_bot('intervalo_busqueda') ):
                     if buscar_en_dpto:
-                        debug_print(f'{ahora_str} Término aún en la cache, no se realiza la búsqueda.')
+                        debug_print(f'Término aún en la cache, no se realiza la búsqueda.')
                     else:
-                        debug_print(f'{ahora_str} "{mensaje}" aún en la cache, no se realiza la búsqueda.')
+                        debug_print(f'"{mensaje}" aún en la cache, no se realiza la búsqueda.')
                 # Si no es válido se actualiza la cache
                 else:
-                    debug_print(f'{ahora_str} Actualizando : "{mensaje}" para {nombre}')
+                    debug_print(f'Actualizando: "{mensaje}" para {nombre} en {tienda}')
                     se_debe_actualizar = True
 
             if se_debe_actualizar:
@@ -1057,8 +1256,9 @@ def actualizar_departamentos_en_categoria(tid, deps):
             registrar_categoria_en_tienda(tid, cid)
             for did, nombre in deps[cat].items():
                 if not existe_departamento_en_categoria(did, cid):
-                    cursor.execute('''INSERT INTO departamento(did, nombre, cid) VALUES(%s, %s, %s)''', (did, nombre, cid))
-                    conn.commit()   
+                    cursor.execute('''INSERT INTO departamento(did, nombre, cid) VALUES(%s, %s, %s)''', (did, nombre, cid))                    
+                    conn.commit()
+                    registrar_categoria_en_tienda(tid, cid)
         conn.close()
     except Exception as ex:
         print('actualizar_departamentos_en_categoria', ex)
@@ -1109,24 +1309,79 @@ def hay_productos_en_provincia(criterio, prov_id):
         soup = BeautifulSoup(data, 'html.parser')
         productos = parsear_productos(soup, url)
         if productos:
-            return True
+            return productos
     else:
         return False
 
 
+# Reduce el credito en 1 a cada usuario de la lista uids
+def deducir_credito_usuario(uid):
+    conn, cursor = inicializar_bd()
+    debug_print(f'Deduciendo 1 crédito al usuario {uid}')
+    cursor.execute('''UPDATE usuario SET credito = credito - 1 WHERE uid = %s and credito > 0''', (uid, ))
+    conn.commit()
+    conn.close() 
+
+
+def esta_en_turno_de_escaneo(uid, criterio, prov_id):
+    try:
+        conn, cursor = inicializar_bd()
+        cursor.execute('''SELECT ultimo_escaneo, frecuencia FROM subscripcion WHERE uid=%s and criterio=%s and prov_id=%s''',
+                        (uid, criterio, prov_id))
+        (ultimo_escaneo, frecuencia) = cursor.fetchone()
+        conn.close()
+        ttrans = (datetime.datetime.now() - ultimo_escaneo).total_seconds()
+        return ttrans >= frecuencia
+    except Exception as ex:
+        debug_print(f'esta_en_turno_de_escaneo: {ex}', 'error')
+
+
+def actualizar_ultimo_escaneo(uid, criterio, prov_id):
+    conn, cursor = inicializar_bd()
+    debug_print(f'Actualizando último escaneo para {uid}')
+    ahora = datetime.datetime.now()
+    cursor.execute('''UPDATE subscripcion SET ultimo_escaneo = %s WHERE uid = %s and criterio = %s and prov_id = %s''', 
+                    (ahora, uid, criterio, prov_id))
+    conn.commit()
+    conn.close() 
 
 
 def notificar_subscritos(context):
     conn, cursor = inicializar_bd()
-    cursor.execute('''SELECT criterio, prov_id, group_concat(uid) as uids FROM subscripcion WHERE estado='activa' group by criterio asc, prov_id''')
+    cursor.execute('''SELECT criterio, prov_id, group_concat(uid) as uids FROM subscripcion WHERE estado=%s group by criterio asc, prov_id''', ('activa', ))
     for (criterio, prov_id, uids) in cursor:
         nombre_provincia = obtener_nombre_provincia(prov_id)
-        if hay_productos_en_provincia(criterio, prov_id):
-            for uid in uids.split(','):
-                context.bot.send_message(chat_id=uid,
-                                         text=f'Atención: Se encontró <b>{criterio}</b> en <b>{nombre_provincia}</b>.', 
-                                         parse_mode='HTML')
-                desactivar_notificacion(uid, criterio, prov_id)
+        busqueda_realizada = productos = alguien_tiene_credito = False
+        for uid in uids.split(','):
+            if obtener_credito_usuario(uid) > 0 and esta_en_turno_de_escaneo(uid, criterio, prov_id):
+                debug_print(f'Ejecutando búsqueda programada de {criterio} para {uid}')
+                deducir_credito_usuario(uid)
+                actualizar_ultimo_escaneo(uid, criterio, prov_id)
+                alguien_tiene_credito = True
+                # Si no ha sido obtenido para otro usuario buscarlo
+                if not busqueda_realizada:           
+                    productos = hay_productos_en_provincia(criterio, prov_id)
+                    busqueda_realizada = True      
+                if productos:
+                    for uid in uids.split(','):                    
+                        if obtener_credito_usuario(uid) > 0:
+                            texto_respuesta = f'Atención: Se encontró <b>{criterio}</b> en <b>{nombre_provincia}</b>.\n\n'
+                            i = 1
+                            for producto, precio, plink, pid in productos:
+                                texto_respuesta += f'{i}. 📦 {producto} --> {precio} <a href="{plink}">ver producto</a>\n'
+                                i += 1          
+                            context.bot.send_message(chat_id=uid,
+                                                     text=texto_respuesta,
+                                                     parse_mode='HTML')                                            
+                        else:
+                            context.bot.send_message(chat_id=uid,
+                                                     text=f'Su crédito de operaciones se ha agotado, por favor, envíe cualquier donación para continuar usando los servicios de búsqueda y subscripción.', 
+                                                     parse_mode='HTML')
+                        desactivar_notificacion(uid, criterio, prov_id)
+
+        else:
+            if not alguien_tiene_credito:
+                debug_print(f'Procesados todos los usuarios subscritos a {criterio}.')
     conn.close()
 
 
@@ -1174,7 +1429,8 @@ def enviar_mensaje_productos_encontrados(update, context, palabras=False, dep=Fa
             bid_results = obtener_soup(palabras, nombre, idchat)
         hay_productos = False
         conn, cursor = inicializar_bd()    
-        for bid, tienda in bid_results:           
+        for bid, tienda in bid_results:    
+            deducir_credito_usuario(idchat)       
             nombre_provincia = obtener_nombre_provincia(prov)
             nombre_tienda = obtener_nombre_tienda(tienda)
 
@@ -1205,14 +1461,26 @@ def enviar_mensaje_productos_encontrados(update, context, palabras=False, dep=Fa
     context.bot.send_message(chat_id=idchat, text=texto_respuesta, parse_mode='HTML')
 
 
+
+def es_comando_valido(comando):
+    comandos_validos = [
+        '/subscribirse_a_',
+        '/eliminar',
+        '/credito'
+    ]
+    for com_val in comandos_validos:
+        if comando.startswith(com_val):
+            return True
+    return False
+
+
 # No procesar comandos incorrectos
 def desconocido(update, context):
     text = update.message.text
-    if not text.startswith('/subscribirse_a_') and not text.startswith('/eliminar'):
-        texto_respuesta = 'Lo sentimos, \"' + text + '\" no es un comando.'
+    if not es_comando_valido(text):
+        texto_respuesta = f'Lo sentimos, "{text}" no es un comando.'
         context.bot.send_message(chat_id=update.effective_chat.id,
                                  text=texto_respuesta)
-
 
 dispatcher.add_handler(MessageHandler(Filters.command, desconocido))
 
@@ -1294,6 +1562,93 @@ def registrar_usuario(update, context):
     # 4. Enviar el mensaje con la respuesta
 
 
+def enviar_listado_productos_segun_criterio(update, context, palabra):
+    idchat = update.effective_chat.id
+    conn, cursor = inicializar_bd()
+    criterio = '%'.join(palabra.split())
+    criterio = f'%{criterio}%'
+    cursor.execute('''SELECT pid, nombre, precio FROM producto WHERE nombre like %s limit 10''', (criterio, ))
+    result = cursor.fetchall()
+    if result:
+        mensaje = f'Algunos de los productos que contienen <b>{palabra}</b>\n\n'
+        for (pid, nombre, precio) in result:
+            mensaje += f'📦 {nombre} -> {precio} /subscribirse_a_{pid}\n'
+        context.bot.send_message(chat_id=idchat, text=mensaje, parse_mode='HTML')
+    else:
+        context.bot.send_message(chat_id=idchat, 
+                                 text='No hay productos que coincidan con el criterio enviado en nuestra base de datos', 
+                                 parse_mode='HTML')
+
+    conn.close()
+
+
+def generar_teclado_frecuencias_subscripcion(update, context, ajustes, palabra):
+    prov_id = ajustes['prov_id']
+    botones = [
+        InlineKeyboardButton('15 min.', callback_data=f'sub:{prov_id}<-->{palabra}<-->900'),
+        InlineKeyboardButton('30 min. (rec.)', callback_data=f'sub:{prov_id}<-->{palabra}<-->1800'),
+        InlineKeyboardButton('1 hora', callback_data=f'sub:{prov_id}<-->{palabra}<-->3600'),
+        InlineKeyboardButton('3 horas', callback_data=f'sub:{prov_id}<-->{palabra}<-->10800'),
+    ]
+
+    reply_markup = InlineKeyboardMarkup( construir_menu(botones, n_cols=2) )
+
+    context.bot.send_message(chat_id=update.effective_chat.id,
+                             text=f'Seleccione la frecuencia de escaneo para {palabra}',
+                             reply_markup=reply_markup)
+
+
+def procesar_respuesta_pendiente(update, context, ajustes, palabra):
+    try:
+        idchat = update.effective_chat.id
+        prov_id = ajustes['prov_id']
+        if RESPUESTA_PENDIENTE[idchat] == 'sub:nueva':
+            prov_id = ajustes['prov_id']
+            if prov_id:
+                generar_teclado_frecuencias_subscripcion(update, context, ajustes, palabra)
+            else:
+                context.bot.send_message(chat_id=idchat,
+                                         text=f'Por favor, seleccione antes una provincia para registrar la subscripción',
+                                         parse_mode='HTML')
+        elif RESPUESTA_PENDIENTE[idchat] == 'prod:list':
+            enviar_listado_productos_segun_criterio(update, context, palabra)
+        del RESPUESTA_PENDIENTE[idchat]
+    except Exception as ex:
+        print('procesar_respuesta_pendiente', ex)
+
+
+def procesar_categorias(update, context, ajustes):
+    try:
+        idchat = update.effective_chat.id
+        if not ajustes['prov_id']:
+            context.bot.send_message(chat_id=idchat,
+                                     text='Seleccione su provincia para comenzar a hacer uso del bot.')
+        elif not ajustes['tid']:
+            context.bot.send_message(chat_id=idchat,
+                                     text='Debe haber seleccionado una tienda antes de acceder a sus categorías.')
+        else:
+            parsear_menu_departamentos(idchat)
+            generar_teclado_categorias(update, context, nuevo=True)
+    except Exception as ex:
+        print('procesar_categorias', ex)
+
+
+
+def numero_busquedas_ultima_hora(idchat):
+    conn, cursor = inicializar_bd()
+    cursor.execute('''SELECT * FROM busqueda WHERE timestampdiff(SECOND, fecha, now()) < 3600 and uid=%s''', (idchat, ))
+    result = cursor.fetchall()
+    conn.close()
+    if result:
+        return len(result)    
+    return 0
+
+
+def actualizar_estado_subscripciones(context):
+    conn, cursor = inicializar_bd()
+    cursor.execute('''UPDATE subscripcion SET estado = %s WHERE timestampdiff(SECOND, fecha, now()) > 86400''', ('expirada', ))
+    conn.commit()
+    conn.close()  
 
 
 # Procesar mensajes de texto que no son comandos
@@ -1301,61 +1656,47 @@ def procesar_palabra(update, context):
     try:
         palabra = update.message.text
         idchat = update.effective_chat.id
-
         if existe_registro_usuario(idchat):
             ajustes = obtener_ajustes_usuario(idchat)
-
-            if palabra == BOTONES['PROVINCIAS']:        
-                generar_teclado_provincias(update, context)
-            elif palabra == BOTONES['AYUDA']:
-                ayuda(update, context)
-            elif palabra == BOTONES['INICIO']:
-                iniciar_aplicacion(update, context)
-            elif palabra == BOTONES['INFO']:
-                mostrar_informacion_usuario(update, context)
-            elif palabra == BOTONES['SUBS']:
-                generar_teclado_opciones_subscripcion(update, context)
-            elif palabra == BOTONES['MAS_BUSCADOS']:
-                mas_buscados(update, context)
-            elif palabra == BOTONES['ACERCA_DE']:
-                context.bot.send_message(chat_id=idchat,
-                                        text='<b>Reportes de errores y sugerencias a:</b>\n\n @disnelr\n+53 56963700\ndisnelrr@gmail.com',
-                                        parse_mode='HTML')
-            elif palabra == BOTONES['CATEGORIAS']:
-                try:
-                    if not ajustes['prov_id']:
-                        context.bot.send_message(chat_id=idchat,
-                                                 text='Seleccione su provincia para comenzar a hacer uso del bot.')
-                    elif not ajustes['tid']:
-                        context.bot.send_message(chat_id=idchat,
-                                                 text='Debe haber seleccionado una tienda antes de acceder a sus categorías.')
+            if ajustes:
+                if palabra == BOTONES['PROVINCIAS']:        
+                    generar_teclado_provincias(update, context)
+                elif palabra == BOTONES['AYUDA']:
+                    ayuda(update, context)
+                elif palabra == BOTONES['INICIO']:
+                    iniciar_aplicacion(update, context)
+                elif palabra == BOTONES['INFO']:
+                    mostrar_informacion_usuario(update, context)
+                elif palabra == BOTONES['SUBS']:
+                    generar_teclado_opciones_subscripcion(update, context)
+                elif palabra == BOTONES['MAS_BUSCADOS']:
+                    mas_buscados(update, context)
+                elif palabra == BOTONES['PRODUCTOS']:
+                    context.bot.send_message(chat_id=idchat,
+                             text='Envíe una o varias palabras y recibirá un listado con los productos registrados relacionados.')
+                    RESPUESTA_PENDIENTE[idchat] = 'prod:list'
+                elif palabra == BOTONES['ACERCA_DE']:
+                    context.bot.send_message(chat_id=idchat,
+                                            text='<b>Reportes de errores y sugerencias a:</b>\n\n @disnelr\n+53 56963700\ndisnelrr@gmail.com',
+                                            parse_mode='HTML')
+                elif obtener_credito_usuario(idchat) > 0:
+                    if palabra == BOTONES['CATEGORIAS']:
+                        procesar_categorias(update, context, ajustes)
+                    elif idchat in RESPUESTA_PENDIENTE:
+                        procesar_respuesta_pendiente(update, context, ajustes, palabra)                
                     else:
-                        parsear_menu_departamentos(idchat)
-                        generar_teclado_categorias(update, context, nuevo=True)
-                except Exception as ex:
-                    print('procesar_palabra: categorías', ex)
-            elif idchat in RESPUESTA_PENDIENTE:
-                try:
-                    if RESPUESTA_PENDIENTE[idchat] == 'sub:nueva':
-                        prov_id = ajustes['prov_id']
-                        if prov_id:
-                            if registrar_subscripcion(idchat, prov_id, palabra):
-                                context.bot.send_message(chat_id=idchat,
-                                                     text=f'Ha actualizado correctamente sus opciones de subscripción. Envíe <b>/sub</b> para chequear sus subscripciones o <b>/sub elim</b> para eliminarlas. Las subscripciones activas serán eliminadas automáticamente luego de 24 horas.',
-                                                     parse_mode='HTML')
-                            else:
-                                context.bot.send_message(chat_id=idchat,
-                                                 text=f'Ha alcanzado el número máximo de subscripciones posibles para este tipo de cuenta.',
-                                                 parse_mode='HTML')
+                        if numero_busquedas_ultima_hora(idchat) > int( obtener_ajuste_bot('max_busquedas_por_hora') ) and obtener_credito_usuario(idchat) == 0:
+                            debug_print(f'Usuario {idchat} rebasó búsquedas máximas por hora y no dispone de crédito.')
+                            context.bot.send_message(chat_id=idchat, 
+                                            text=f'Ha rebasado el número de búsquedas permitidas en una hora. Intente más tarde.')
                         else:
-                            context.bot.send_message(chat_id=idchat,
-                                                     text=f'Por favor, seleccione antes una provincia para registrar la subscripción',
-                                                     parse_mode='HTML')
-                    del RESPUESTA_PENDIENTE[idchat]
-                except Exception as ex:
-                    print('procesar_palabra: subscripciones', ex)
-            else:            
-                enviar_mensaje_productos_encontrados(update, context)
+                            enviar_mensaje_productos_encontrados(update, context)
+                else:
+                    context.bot.send_message(chat_id=idchat, 
+                                     text=f'🎩 Funcionalidad restrigida. Considere recargar crédito.')
+            else:
+                context.bot.send_message(chat_id=idchat, 
+                                        text=f'Sus datos no han sido registrados. Pulse /start para registrarlos.')
         else:
             registrar_usuario(update, context)
             context.bot.send_message(chat_id=idchat, 
@@ -1382,4 +1723,5 @@ def parsear_detalles_producto(tid, pid):
 
 
 job_queue = updater.job_queue
-job_queue.run_repeating(notificar_subscritos, TTL)
+job_queue.run_repeating(notificar_subscritos, int(obtener_ajuste_bot('intervalo_busqueda_subscripcion')) )
+job_queue.run_repeating(actualizar_estado_subscripciones, int(obtener_ajuste_bot('intervalo_busqueda_subscripcion')) / 2)
