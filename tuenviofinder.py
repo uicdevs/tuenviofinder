@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-import datetime, os, mysql.connector, sys
+import datetime, os, mysql.connector, sys, timeago
 from pathlib import Path
 from collections import Counter
 
@@ -22,6 +22,11 @@ URL = f'https://api.telegram.org/bot{TOKEN}/'
 REQUEST_KWARGS={
     'proxy_url': 'http://172.26.1.10:3128/',
 }
+
+SUPER_ADMINS = [
+    744256293,
+    728711697
+]
 
 URL_BASE_TUENVIO = 'https://www.tuenvio.cu'
 
@@ -134,7 +139,9 @@ def obtener_nombre_tienda(tid):
         cursor.execute('''SELECT nombre FROM tienda WHERE tid=%s''', (tid, ))
         result = cursor.fetchone()
         conn.close()
-        return result[0]
+        if result:
+            return result[0]
+        return False
     except Exception as ex:
          print('obtener_nombre_tienda', ex)
 
@@ -285,6 +292,13 @@ def start(update, context):
 dispatcher.add_handler( CommandHandler('start', start) )
 
 
+def resetear_ajustes_usuario(uid):
+    conn, cursor = inicializar_bd()
+    cursor.execute('''DELETE FROM ajustes_usuario WHERE uid=%s''', (uid, ))
+    cursor.execute('''INSERT INTO ajustes_usuario(uid) values (%s)''', (uid, ))
+    conn.commit()
+    conn.close()
+
 
 def iniciar_aplicacion(update, context):
     try:
@@ -292,12 +306,10 @@ def iniciar_aplicacion(update, context):
 
         idchat = update.effective_chat.id
 
-        conn, cursor = inicializar_bd()
-        cursor.execute('''DELETE FROM ajustes_usuario WHERE uid=%s''', (idchat, ))
-        cursor.execute('''INSERT INTO ajustes_usuario(uid) values (%s)''', (idchat, ))
-        conn.commit()
-        conn.close()
+        registrar_usuario(update, context)
+        resetear_ajustes_usuario(idchat)
 
+        
         button_list = [
             [ BOTONES['INICIO'], BOTONES['AYUDA'], BOTONES['INFO'] ],
             [ BOTONES['PROVINCIAS'], BOTONES['CATEGORIAS'], BOTONES['SUBS'] ],
@@ -341,6 +353,32 @@ def ultimos_registros_bot(update, context):
 
 
 dispatcher.add_handler(CommandHandler('log', ultimos_registros_bot))
+
+
+def credito_usuarios(update, context):
+    try:
+        idchat = update.effective_chat.id
+        if idchat in SUPER_ADMINS:
+            conn, cursor = inicializar_bd()
+            cursor.execute('''SELECT uid, nombre, credito FROM usuario WHERE credito > 0 ORDER BY credito DESC LIMIT 10''')
+            texto_respuesta = ''
+            for (uid, nombre, credito) in cursor:
+                cup = credito / 80
+                texto_respuesta += f'{uid}. 👤{nombre} 💰{credito} = ${cup}\n'
+            if texto_respuesta:
+                texto_respuesta = '<b>Top 10 usuarios con crédito</b>\n\n' + texto_respuesta
+                context.bot.send_message(chat_id=idchat,
+                                         text=texto_respuesta,
+                                         parse_mode='HTML')
+            else:
+                context.bot.send_message(chat_id=idchat,
+                                         text='Nadie con crédito disponible.')
+            conn.close()
+    except Exception as ex:
+        debug_print(f'credito_usuarios: {ex}', 'error')
+
+
+dispatcher.add_handler(CommandHandler('credito', credito_usuarios))
 
 
 def ultimas_subscripciones(update, context):
@@ -391,6 +429,58 @@ def actualizar_departamento_seleccionado(idchat, dep):
     conn.close()
 
 
+def enviar_registro_escaneos_subscripciones(update, context, idchat):
+    conn, cursor = inicializar_bd()
+    cadena_busqueda = f'%búsqueda programada%{idchat}%'
+    cursor.execute('''SELECT lid, mensaje, fecha FROM log WHERE mensaje LIKE %s ORDER BY fecha desc limit 10''', (cadena_busqueda, ))
+    texto_respuesta = ''
+    for (lid, mensaje, fecha) in cursor:
+        desde = timeago.format(fecha, datetime.datetime.now(), 'es')
+        texto_respuesta += f'{lid}. <i>{mensaje}</i> {desde}\n'
+    if texto_respuesta:
+        texto_respuesta = 'Registros de escaneos recientes:\n\n' + texto_respuesta
+        context.bot.send_message(text=texto_respuesta,
+                                 chat_id=idchat,
+                                 parse_mode='HTML')
+    else:
+        context.bot.send_message(text='Aún no hay registros de escaneo de subscripciones.',
+                                 chat_id=idchat,
+                                 parse_mode='HTML')                
+    conn.close()
+
+
+def formatear_frecuencia(frecuencia):
+    conn, cursor = inicializar_bd()
+    cursor.execute('''SELECT texto FROM frecuencia_escaneo WHERE frecuencia = %s''', (frecuencia, ))
+    texto_frec = cursor.fetchone()[0]
+    conn.close()
+    return f'cada ⏰ {texto_frec}'
+
+
+def enviar_subscripciones_procesadas(update, context):
+    try:
+        idchat = update.effective_chat.id
+        conn, cursor = inicializar_bd()
+        cursor.execute('''SELECT max(sid) as sid, criterio, prov_id, max(ultimo_escaneo) as ultimo \
+                        FROM subscripcion where uid=%s group by criterio, prov_id \
+                        order by ultimo desc limit 10''', (idchat, ))
+        texto_respuesta = ''
+        for (sid, criterio, prov_id, ultimo_esc) in cursor:
+            texto_respuesta += f'{sid}. <i>{criterio}</i> [{prov_id}] /activar_{sid}\n'
+        conn.close()
+        if texto_respuesta:
+            texto_respuesta = '<b>Historial de subscripciones procesadas:</b>\n\n' + texto_respuesta        
+            context.bot.send_message(text=texto_respuesta,
+                                     chat_id=idchat,
+                                     parse_mode='HTML')
+        else:        
+            context.bot.send_message(text='No se encontraron subscripciones procesadas',
+                                     chat_id=idchat,
+                                     parse_mode='HTML')
+    except Exception as ex:
+        debug_print(f'enviar_subscripciones_procesadas: {ex}', 'error')
+
+
 # Manejador de los teclados inlines disponibles
 # TODO: Identificar cada query.data con un prefijo de la operación a realizar
 def manejador_teclados_inline(update, context):
@@ -412,6 +502,10 @@ def manejador_teclados_inline(update, context):
                                          text=f'Se han eliminado correctamente sus opciones de subscripción, \
                                          si las tenía. Recuerde que siempre puede volver a subscribirse utilizando <b>/sub provincia palabras</b>.',
                                          parse_mode='HTML')
+            elif opcion == 'log':
+                enviar_registro_escaneos_subscripciones(update, context, idchat)
+            elif opcion == 'proc':
+                enviar_subscripciones_procesadas(update, context)
             else:
                 # Acción por defecto, es un ID de provincia con los demás datos para crear la subscripción
                 prov_id, criterio, frec = opcion.split('<-->')
@@ -441,7 +535,7 @@ def manejador_teclados_inline(update, context):
                 enviar_mensaje_productos_encontrados(update, context, palabras=pal)
             else:
                 context.bot.send_message(chat_id=idchat, 
-                                     text=f'🎩 Funcionalidad restrigida. Considere recargar crédito.')
+                                     text=f'🎩 Bot en mantenimiento. Gracias por su apoyo.')
         elif es_id_de_provincia(query.data):
             try:
                 prov = query.data
@@ -611,6 +705,8 @@ def generar_teclado_opciones_subscripcion(update, context):
     botones = [
         InlineKeyboardButton('🆕 Crear nueva', callback_data='sub:nueva'),     
         InlineKeyboardButton('🗑 Eliminar todas', callback_data='sub:elim'),
+        InlineKeyboardButton('📠 Ver registro', callback_data='sub:log'),
+        #InlineKeyboardButton('🕔 Procesadas', callback_data='sub:proc'),
     ]
 
     idchat = update.effective_chat.id
@@ -709,13 +805,49 @@ def eliminar_subscripcion_unica(update, context):
         print('eliminar_subscripcion_unica:', ex)
 
 
-def cargar_comandos_subscripcion():
+
+def cambiar_frecuencia_subscripcion(update, context):
+    try:
+        context.bot.send_message(chat_id=update.effective_chat.id,
+                                 text=f'Próximamente disponible.',
+                                 parse_mode='HTML')
+    except Exception as ex:
+        print('cambiar_frecuencia_subscripcion:', ex)
+
+
+# Retorna una lista con las subscripciones en un estado dado
+def obtener_subscripciones_segun_estado(estado):
     try:
         conn, cursor = inicializar_bd()
-        cursor.execute('''SELECT sid FROM subscripcion WHERE estado=%s''', ('activa', ))
+        subscripciones = []
+        cursor.execute('''SELECT sid FROM subscripcion WHERE estado=%s''', (estado, ))
         for (sid, ) in cursor:
-            dispatcher.add_handler(CommandHandler(f'eliminar_sub_{sid}', eliminar_subscripcion_unica), 1)
+            subscripciones.append(sid)
         conn.close()
+        return subscripciones
+    except Exception as ex:
+        print('obtener_subscripciones_segun_estado:', ex)
+
+
+def activar_subscripcion_procesada(update, context):
+    sid = update.message.text.split('_')[-1]
+    conn, cursor = inicializar_bd()
+    cursor.execute('''UPDATE subscripcion SET estado=%s WHERE sid=%s''', ('activa', sid))
+    context.bot.send_message(text='Subscripción activada con éxito. Pulse /sub para chequear sus subscripciones.',
+                             chat_id=update.effective_chat.id)
+    dispatcher.add_handler(CommandHandler(f'cambiar_frec_{sid}', cambiar_frecuencia_subscripcion), 1)
+    dispatcher.add_handler(CommandHandler(f'eliminar_sub_{sid}', eliminar_subscripcion_unica), 1)
+    conn.commit()
+    conn.close() 
+
+
+def cargar_comandos_subscripcion():
+    try:        
+        for sid in obtener_subscripciones_segun_estado('activa'):
+            dispatcher.add_handler(CommandHandler(f'eliminar_sub_{sid}', eliminar_subscripcion_unica), 1)
+            dispatcher.add_handler(CommandHandler(f'cambiar_frec_{sid}', cambiar_frecuencia_subscripcion), 1)
+        for sid in obtener_subscripciones_segun_estado('procesada'):
+            dispatcher.add_handler(CommandHandler(f'activar_{sid}', activar_subscripcion_procesada), 1)
     except Exception as ex:
         print('cargar_comandos_subscripcion:', ex)
 
@@ -768,6 +900,8 @@ def desactivar_notificacion(uid, criterio, prov_id):
     conn, cursor = inicializar_bd()
     cursor.execute('''UPDATE subscripcion SET estado=%s WHERE uid=%s and criterio=%s and prov_id=%s''',
                      ('procesada', uid, criterio, prov_id))
+    sid = cursor.lastrowid
+    dispatcher.add_handler(CommandHandler(f'activar_{sid}', activar_subscripcion_procesada), 1)
     conn.commit()
     conn.close()
 
@@ -796,6 +930,7 @@ def registrar_subscripcion(idchat, prov_id, palabras, frec):
                             (idchat, palabras, ahora, prov_id, frec, ahora))
             sid = cursor.lastrowid
             dispatcher.add_handler(CommandHandler(f'eliminar_sub_{sid}', eliminar_subscripcion_unica), 1)
+            dispatcher.add_handler(CommandHandler(f'cambiar_frec_{sid}', cambiar_frecuencia_subscripcion), 1)            
             conn.commit()
             conn.close()
             return True
@@ -890,28 +1025,47 @@ def usuarios_vip():
 
 def acreditar_usuario(update, context):
     idchat = update.effective_chat.id
-    if len(context.args) != 2:
-        context.bot.send_message(chat_id=idchat, text='Error, número incorrecto de parámetros')
-    else:
-        try:
-            conn, cursor = inicializar_bd()
-            uid = context.args[0]
-            monto = context.args[1]
-            cursor.execute('''UPDATE usuario SET credito = credito + %s WHERE uid=%s''', (monto, uid))
-            conn.commit()
-            conn.close()
-            context.bot.send_message(chat_id=idchat, 
-                                     text=f'Monto acreditado correctamente, pulse /credito_{uid} para consultar el saldo del usuario acreditado.')
-            # Notificar al usuario que recibe la acreditación
-            context.bot.send_message(chat_id=uid, 
-                                     text=f'Se han acreditado {monto} TEF a su cuenta de usuario. Consulte {BOTONES["INFO"]} para conocer su crédito.')
-            debug_print(f'Acreditados {monto} TEF a la cuenta de usuario {uid}')
-            dispatcher.add_handler(CommandHandler(f'credito_{uid}', consultar_credito_usuario))
-        except Exception as ex:
-            debug_print(f'acreditar_usuario: {ex}', 'error')                      
+    if idchat in SUPER_ADMINS:
+        if len(context.args) != 2:
+            context.bot.send_message(chat_id=idchat, text='Error, número incorrecto de parámetros')
+        else:
+            try:
+                conn, cursor = inicializar_bd()
+                uid = context.args[0]
+                monto = context.args[1]
+                ahora = datetime.datetime.now()
+                cursor.execute('''UPDATE usuario SET credito = credito + %s WHERE uid=%s''', (monto, uid))
+                cursor.execute('''INSERT INTO operacion_credito(uid, descripcion, tipo, monto, fecha) VALUES(%s, %s, %s, %s, %s)''',
+                              (idchat, 'Recarga', 'crédito', monto, ahora))
+                conn.commit()
+                conn.close()
+                context.bot.send_message(chat_id=idchat, 
+                                         text=f'Monto acreditado correctamente, pulse /credito_{uid} para consultar el saldo del usuario acreditado.')
+                # Notificar al usuario que recibe la acreditación
+                context.bot.send_message(chat_id=uid, 
+                                         text=f'Se han acreditado {monto} TEF a su cuenta de usuario. Consulte {BOTONES["INFO"]} para conocer su crédito.')
+                debug_print(f'Acreditados {monto} TEF a la cuenta de usuario {uid}')
+                dispatcher.add_handler(CommandHandler(f'credito_{uid}', consultar_credito_usuario), 1)
+            except Exception as ex:
+                debug_print(f'acreditar_usuario: {ex}', 'error')                      
 
 
 dispatcher.add_handler(CommandHandler('acreditar', acreditar_usuario))
+
+
+def solicitar_credito(update, context):
+    try:
+        idchat = update.effective_chat.id
+        context.bot.send_message(chat_id=idchat, 
+                                 text=f'Se ha enviado una solicitud de depósito de crédito, en breve será atendido.')
+        for admin in SUPER_ADMINS:
+            context.bot.send_message(chat_id=admin, 
+                                     text=f'El usuario {idchat} ha solicitado un depósito de crédito.')
+    except Exception as ex:
+        debug_print(f'solicitar_credito: {ex}', 'error') 
+
+
+dispatcher.add_handler(CommandHandler('solicitar_credito', solicitar_credito))
 
 
 def seleccionar_categorias_tienda(update, context):
@@ -931,7 +1085,7 @@ def seleccionar_categorias_tienda(update, context):
             generar_teclado_categorias(update, context, nuevo=True)
         else:
             context.bot.send_message(chat_id=idchat, 
-                                     text=f'🎩 Funcionalidad restrigida. Considere recargar crédito.')
+                                     text=f'🎩 Bot en mantenimiento. Gracias por su apoyo.')
     except Exception as ex:
         print('seleccionar_categorias_tienda:', ex)
     
@@ -979,17 +1133,6 @@ def mostrar_informacion_usuario(update, context):
         print('mostrar_informacion_usuario:', ex)
 
 
-def formatear_frecuencia(frecuencia):
-    frecuencia = int(frecuencia)
-    if frecuencia == 900:
-        return 'cada ⏰ 15 min.'
-    elif frecuencia == 1800:
-        return 'cada ⏰ 30 min.'
-    elif frecuencia == 3600:
-        return 'cada ⏰ 1 hora'
-    elif frecuencia == 10800:
-        return 'cada ⏰ 3 horas'
-
 
 # Retorna las subscripciones activas listas para enviar en un mensaje
 # (Se debe añadir la cabecera)
@@ -999,7 +1142,7 @@ def subscripciones_activas_con_formato(idchat):
     for (criterio, fecha, prov_id, sid, frecuencia) in subscripciones_activas(idchat):
         nombre_provincia = obtener_nombre_provincia(prov_id)
         frec_formato = formatear_frecuencia(frecuencia)
-        subs.append(f'<b>{i}.</b> 📜<b>{criterio}</b> en {nombre_provincia} {frec_formato} /eliminar_sub_{sid}') 
+        subs.append(f'<b>{i}.</b> 📜<b>{criterio}</b> en {nombre_provincia} {frec_formato} /eliminar_sub_{sid} o /cambiar_frec_{sid}')
         i = i + 1
     if subs:
         return '\n\n'.join(subs)
@@ -1199,10 +1342,10 @@ def obtener_soup(mensaje, nombre, idchat, buscar_en_dpto=False, tienda=False):
                 url = f'{url_base}/{cadena_busqueda}'
                 bid = actualizar_resultados_busqueda(url=url, mensaje=mensaje, tienda=tienda,
                                                ahora=ahora, idchat=idchat, did=did)
-                bid_results.append( (bid, tienda) )
+                bid_results.append( (bid, tienda, False) )
             else:
                 bid = res_busqueda['bid']
-                bid_results.append( (bid, tienda) )            
+                bid_results.append( (bid, tienda, True) )       
 
         return bid_results
                     
@@ -1314,13 +1457,22 @@ def hay_productos_en_provincia(criterio, prov_id):
         return False
 
 
-# Reduce el credito en 1 a cada usuario de la lista uids
-def deducir_credito_usuario(uid):
+# Reduce el credito en monto al usuario
+def deducir_credito_usuario(context, uid, monto = 1):
     conn, cursor = inicializar_bd()
-    debug_print(f'Deduciendo 1 crédito al usuario {uid}')
-    cursor.execute('''UPDATE usuario SET credito = credito - 1 WHERE uid = %s and credito > 0''', (uid, ))
-    conn.commit()
-    conn.close() 
+    ahora = datetime.datetime.now()
+    debug_print(f'Deduciendo {monto} crédito al usuario {uid}')
+    cursor.execute('''UPDATE usuario SET credito = credito - %s WHERE uid = %s and credito > 0''', (monto, uid))
+    cursor.execute('''INSERT INTO operacion_credito(uid, descripcion, tipo, monto, fecha) VALUES(%s, %s, %s, %s, %s)''',
+                    (uid, 'Deducción por búsqueda', 'débito', monto, ahora))
+    conn.commit()    
+    conn.close()
+    if obtener_credito_usuario(uid) == 0:
+        context.bot.send_message(chat_id=uid, 
+                                 text='Su crédito se ha agotado, por favor, recargue 👍.',
+                                 parse_mode='HTML')
+        debug_print(f'Agotado el crédito del usuario {uid}')
+
 
 
 def esta_en_turno_de_escaneo(uid, criterio, prov_id):
@@ -1343,7 +1495,27 @@ def actualizar_ultimo_escaneo(uid, criterio, prov_id):
     cursor.execute('''UPDATE subscripcion SET ultimo_escaneo = %s WHERE uid = %s and criterio = %s and prov_id = %s''', 
                     (ahora, uid, criterio, prov_id))
     conn.commit()
+    conn.close()
+
+
+# A partir de la lista de ID de usuarios separada por coma retorna aquellos 
+# a los que se les puede efectuar la busqueda
+def obtener_usuarios_listos_para_escaneo(uids, criterio, prov_id):
+    listos = []
+    for uid in uids.split(','):
+        if obtener_credito_usuario(uid) > 0 and esta_en_turno_de_escaneo(uid, criterio, prov_id):
+            listos.append(uid)
+    return listos
+
+
+def obtener_nombre_usuario(uid):
+    conn, cursor = inicializar_bd()
+    cursor.execute('''SELECT nombre FROM usuario WHERE uid=%s''', (uid, ))
+    result = cursor.fetchone()
+    if result:
+        return result[0]
     conn.close() 
+    return 'Desconocido'
 
 
 def notificar_subscritos(context):
@@ -1352,36 +1524,47 @@ def notificar_subscritos(context):
     for (criterio, prov_id, uids) in cursor:
         nombre_provincia = obtener_nombre_provincia(prov_id)
         busqueda_realizada = productos = alguien_tiene_credito = False
-        for uid in uids.split(','):
-            if obtener_credito_usuario(uid) > 0 and esta_en_turno_de_escaneo(uid, criterio, prov_id):
-                debug_print(f'Ejecutando búsqueda programada de {criterio} para {uid}')
-                deducir_credito_usuario(uid)
-                actualizar_ultimo_escaneo(uid, criterio, prov_id)
-                alguien_tiene_credito = True
-                # Si no ha sido obtenido para otro usuario buscarlo
-                if not busqueda_realizada:           
+        listos = obtener_usuarios_listos_para_escaneo(uids, criterio, prov_id)
+        for uid in listos:
+            debug_print(f'Ejecutando búsqueda programada de {criterio} para {uid}')
+            deducir_credito_usuario(context, uid, 1 / len(listos))
+            actualizar_ultimo_escaneo(uid, criterio, prov_id)
+            alguien_tiene_credito = True
+            # Si no ha sido obtenido para otro usuario buscarlo
+            if not busqueda_realizada:     
+                try:      
                     productos = hay_productos_en_provincia(criterio, prov_id)
-                    busqueda_realizada = True      
-                if productos:
-                    for uid in uids.split(','):                    
-                        if obtener_credito_usuario(uid) > 0:
-                            texto_respuesta = f'Atención: Se encontró <b>{criterio}</b> en <b>{nombre_provincia}</b>.\n\n'
-                            i = 1
-                            for producto, precio, plink, pid in productos:
-                                texto_respuesta += f'{i}. 📦 {producto} --> {precio} <a href="{plink}">ver producto</a>\n'
-                                i += 1          
-                            context.bot.send_message(chat_id=uid,
-                                                     text=texto_respuesta,
-                                                     parse_mode='HTML')                                            
-                        else:
-                            context.bot.send_message(chat_id=uid,
-                                                     text=f'Su crédito de operaciones se ha agotado, por favor, envíe cualquier donación para continuar usando los servicios de búsqueda y subscripción.', 
-                                                     parse_mode='HTML')
-                        desactivar_notificacion(uid, criterio, prov_id)
+                except ConnectionResetError:
+                    debug_print('Error de conexión al localizar productos para notificar', 'error')
+                except Exception as ex:
+                    debug_print(f'Error desconocido al localizar productos para notificar, se obtuvo {ex}', 'error')
+                busqueda_realizada = True      
+            if productos:
+                for uid in uids.split(','):
+                    if obtener_credito_usuario(uid) > 0:
+                        texto_respuesta = f'Atención: Se encontró <b>{criterio}</b> en <b>{nombre_provincia}</b>.\n\n'
+                        i = 1
+                        for producto, precio, plink, pid in productos:
+                            texto_respuesta += f'{i}. 📦 {producto} --> {precio} <a href="{plink}">ver producto</a>\n'
+                            i += 1          
+                        context.bot.send_message(chat_id=uid, text=texto_respuesta, parse_mode='HTML')
+                        nombre_usuario = obtener_nombre_usuario(uid)
+                        texto_debug_info = f'Notificado {uid} ({nombre_usuario}) sobre criterio {criterio} en {nombre_provincia}'
+                        debug_print(texto_debug_info, 'estado')
+                        # Temporal para informar que alguien encontró producto como subscrito
+                        for admin in SUPER_ADMINS:
+                            context.bot.send_message(chat_id=admin, text=texto_debug_info, parse_mode='HTML')
+                    else:
+                        context.bot.send_message(chat_id=uid,
+                                                 text=f'Su crédito de operaciones se ha agotado, por favor, envíe cualquier donación para continuar usando los servicios de búsqueda y subscripción.', 
+                                                 parse_mode='HTML')
+                    # Activar esta llamada segun ajuste del sistema, para que se elimine la subscripcion
+                    # una vez encontrado el criterio
+                    #desactivar_notificacion(uid, criterio, prov_id)
 
         else:
             if not alguien_tiene_credito:
-                debug_print(f'Procesados todos los usuarios subscritos a {criterio}.')
+                debug_print(f'Procesados todos los usuarios subscritos a {criterio} en {nombre_provincia}.')
     conn.close()
 
 
@@ -1427,27 +1610,27 @@ def enviar_mensaje_productos_encontrados(update, context, palabras=False, dep=Fa
             if not palabras:
                 palabras = update.message.text
             bid_results = obtener_soup(palabras, nombre, idchat)
-        hay_productos = False
         conn, cursor = inicializar_bd()    
-        for bid, tienda in bid_results:    
-            deducir_credito_usuario(idchat)       
+        for bid, tienda, en_cache in bid_results:
+            if not en_cache:  
+                deducir_credito_usuario(context, idchat)       
             nombre_provincia = obtener_nombre_provincia(prov)
             nombre_tienda = obtener_nombre_tienda(tienda)
-
-            if dep:
-                nombre_dep = obtener_nombre_departamento(did)                
-                texto_respuesta += f'<b>Resultados en: 🏬 {nombre_tienda}</b>\n\n<b>Departamento:</b> {nombre_dep}\n\n'
-            else:
-                texto_respuesta += f'<b>Resultados en: 🏬 {nombre_tienda}</b>\n\n' 
             
             productos = obtener_productos_resultado_busqueda(bid)
-            for pid, producto, precio, plink in productos:
-                hay_productos = True                
-                dispatcher.add_handler( CommandHandler(f'subscribirse_a_{pid}', sub_a), 1)                       
-                texto_respuesta += f'📦{producto} --> {precio} <a href="{plink}">ver producto</a> o /subscribirse_a_{pid}\n'
-                
-            texto_respuesta += "\n"
-        if hay_productos:
+            texto_respuesta_tid = ''
+            if productos:
+                for pid, producto, precio, plink in productos:
+                    dispatcher.add_handler( CommandHandler(f'subscribirse_a_{pid}', sub_a), 1)                       
+                    texto_respuesta_tid += f'📦{producto} --> {precio} <a href="{plink}">ver producto</a> o /subscribirse_a_{pid}\n'
+                if dep:
+                    nombre_dep = obtener_nombre_departamento(did)                
+                    texto_respuesta_tid = f'<b>Resultados en: 🏬 {nombre_tienda}</b>\n\n<b>Departamento:</b> {nombre_dep}\n\n{texto_respuesta_tid}\n'
+                else:
+                    texto_respuesta_tid = f'<b>Resultados en: 🏬 {nombre_tienda}</b>\n\n{texto_respuesta_tid}\n'
+            texto_respuesta = f'{texto_respuesta}{texto_respuesta_tid}'
+            texto_respuesta_tid = ''
+        if texto_respuesta:
             texto_respuesta = f'🎉🎉🎉¡¡¡Encontrado!!! 🎉🎉🎉\n\n{texto_respuesta}'
         else:
             if dep:
@@ -1465,8 +1648,10 @@ def enviar_mensaje_productos_encontrados(update, context, palabras=False, dep=Fa
 def es_comando_valido(comando):
     comandos_validos = [
         '/subscribirse_a_',
-        '/eliminar',
-        '/credito'
+        '/eliminar_',
+        '/credito_',
+        '/cambiar_frec_',
+        '/activar_'
     ]
     for com_val in comandos_validos:
         if comando.startswith(com_val):
@@ -1582,14 +1767,22 @@ def enviar_listado_productos_segun_criterio(update, context, palabra):
     conn.close()
 
 
+def obtener_frecuencias():
+    conn, cursor = inicializar_bd()
+    frecuencias = []
+    cursor.execute('''SELECT frecuencia, texto FROM frecuencia_escaneo''')
+    for frec in cursor:
+        frecuencias.append( frec )
+    conn.close()  
+    return frecuencias
+
+
 def generar_teclado_frecuencias_subscripcion(update, context, ajustes, palabra):
     prov_id = ajustes['prov_id']
-    botones = [
-        InlineKeyboardButton('15 min.', callback_data=f'sub:{prov_id}<-->{palabra}<-->900'),
-        InlineKeyboardButton('30 min. (rec.)', callback_data=f'sub:{prov_id}<-->{palabra}<-->1800'),
-        InlineKeyboardButton('1 hora', callback_data=f'sub:{prov_id}<-->{palabra}<-->3600'),
-        InlineKeyboardButton('3 horas', callback_data=f'sub:{prov_id}<-->{palabra}<-->10800'),
-    ]
+
+    botones = []
+    for frec, texto in obtener_frecuencias():
+        botones.append( InlineKeyboardButton(texto, callback_data=f'sub:{prov_id}<-->{palabra}<-->{frec}') )
 
     reply_markup = InlineKeyboardMarkup( construir_menu(botones, n_cols=2) )
 
@@ -1693,14 +1886,14 @@ def procesar_palabra(update, context):
                             enviar_mensaje_productos_encontrados(update, context)
                 else:
                     context.bot.send_message(chat_id=idchat, 
-                                     text=f'🎩 Funcionalidad restrigida. Considere recargar crédito.')
+                                     text=f'🎩 Bot en mantenimiento. Gracias por su apoyo.')
             else:
                 context.bot.send_message(chat_id=idchat, 
                                         text=f'Sus datos no han sido registrados. Pulse /start para registrarlos.')
         else:
             registrar_usuario(update, context)
             context.bot.send_message(chat_id=idchat, 
-                                     text=f'Sus datos han sido registrados. Ahora intente seleccionar una provincia.')
+                                     text=f'Sus datos han sido registrados. Ahora pruebe seleccionar una provincia.')
     except Exception as ex:
         print('procesar_palabra', ex)
 
@@ -1724,4 +1917,4 @@ def parsear_detalles_producto(tid, pid):
 
 job_queue = updater.job_queue
 job_queue.run_repeating(notificar_subscritos, int(obtener_ajuste_bot('intervalo_busqueda_subscripcion')) )
-job_queue.run_repeating(actualizar_estado_subscripciones, int(obtener_ajuste_bot('intervalo_busqueda_subscripcion')) / 2)
+#job_queue.run_repeating(actualizar_estado_subscripciones, int(obtener_ajuste_bot('intervalo_busqueda_subscripcion')) / 2)
